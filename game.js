@@ -1,5 +1,5 @@
 import { config } from './config.js';
-import { weapons, armors, levelGains, masters, monsters, deathMessages, classNames } from './gameData.js';
+import { weapons, armors, levelGains, masters, monsters, deathMessages, classNames, forestEvents } from './gameData.js';
 import { playerExists, loadPlayer, savePlayer, createPlayer, getAllPlayers } from './player.js';
 
 function random(min, max) {
@@ -63,7 +63,7 @@ export function getPlayerStats(nick) {
   
   const weapon = weapons[player.weapon_num - 1];
   const armor = armors[player.armor_num - 1];
-  const nextXp = getXpNeeded(player.level);
+  const nextXp = getXpNeeded(player.level + 1);
   
   return {
     ...player,
@@ -93,9 +93,9 @@ export function createCharacter(nick, name, playerClass, sex) {
     return { success: false, message: 'Character already exists!' };
   }
   
-  if (!name || name.length < 1 || name.length > 20) {
+  if (!name || name.length < 1 || name.length > 100) {
     console.log('createCharacter: Name validation failed!');
-    return { success: false, message: 'Name must be 1-20 characters!' };
+    return { success: false, message: 'Name must be 1-100 characters!' };
   }
   
   const allPlayers = getAllPlayers();
@@ -129,7 +129,7 @@ export function checkLevelUp(nick) {
   const player = loadPlayer(nick);
   if (!player) return null;
   
-  const nextXp = getXpNeeded(player.level);
+  const nextXp = getXpNeeded(player.level + 1);
   
   if (player.xp >= nextXp && player.level < config.maxLevel) {
     const newLevel = player.level + 1;
@@ -148,19 +148,130 @@ export function checkLevelUp(nick) {
   return { levelUp: false };
 }
 
+export function checkForestEvent(nick) {
+  const roll = random(1, 100);
+  let cumulative = 0;
+  
+  for (const event of forestEvents) {
+    cumulative += event.chance;
+    if (roll <= cumulative) {
+      return processForestEvent(nick, event);
+    }
+  }
+  
+  return null;
+}
+
+export function processForestEvent(nick, event) {
+  const player = loadPlayer(nick);
+  if (!player) return null;
+  
+  const result = {
+    event: event.name,
+    message: event.message,
+    type: event.type,
+    outcomes: []
+  };
+  
+  switch (event.type) {
+    case 'treasure':
+      const goldFound = random(50, 200) * (1 + player.level * 0.5);
+      const gemsFound = random(1, 100) <= 10 ? 1 : 0;
+      player.gold = clamp(player.gold + Math.floor(goldFound), 0, config.maxGold);
+      if (gemsFound) {
+        player.gems += 1;
+        result.outcomes.push('You found ' + Math.floor(goldFound) + ' gold and a GEM!');
+      } else {
+        result.outcomes.push('You found ' + Math.floor(goldFound) + ' gold!');
+      }
+      break;
+      
+    case 'bandit':
+      result.outcomes.push('You fight off the bandit!');
+      const goldLost = Math.floor(player.gold * random(5, 20) / 100);
+      player.gold = clamp(player.gold - goldLost, 0, config.maxGold);
+      if (goldLost > 0) {
+        result.outcomes.push('The bandit stole ' + goldLost + ' gold!');
+      }
+      const hpLost = random(1, 5);
+      player.hp = clamp(player.hp - hpLost, 1, player.maxhp);
+      result.outcomes.push('You took ' + hpLost + ' damage in the fight.');
+      break;
+      
+    case 'fairy':
+      const healAmount = Math.floor(player.maxhp * random(20, 50) / 100);
+      player.hp = clamp(player.hp + healAmount, 1, player.maxhp);
+      result.outcomes.push('The fairy heals you for ' + healAmount + ' HP!');
+      break;
+      
+    case 'nothing':
+      result.outcomes.push('You continue on your way.');
+      break;
+      
+    case 'merchant':
+      result.outcomes.push('The merchant has left some potions behind.');
+      const potionHeal = Math.floor(player.maxhp * 0.3);
+      player.hp = clamp(player.hp + potionHeal, 1, player.maxhp);
+      result.outcomes.push('You drink a health potion and restore ' + potionHeal + ' HP!');
+      break;
+      
+    case 'ruins':
+      result.outcomes.push('You find ancient texts that increase your wisdom!');
+      const xpGain = random(20, 50) * player.level;
+      player.xp = clamp(player.xp + xpGain, 0, config.maxXP);
+      result.outcomes.push('You gain ' + xpGain + ' experience!');
+      break;
+      
+    case 'snow':
+      result.outcomes.push('The cold saps your strength!');
+      const fightsLost = random(1, 3);
+      player.fights = clamp(player.fights - fightsLost, 0, 500);
+      result.outcomes.push('You lose ' + fightsLost + ' fight(s) from exhaustion.');
+      break;
+      
+    case 'bats':
+      result.outcomes.push('You fight off the bats!');
+      const batDamage = random(1, player.level * 2);
+      player.hp = clamp(player.hp - batDamage, 1, player.maxhp);
+      result.outcomes.push('The vampire bats drain ' + batDamage + ' HP!');
+      const batGold = random(10, 50);
+      player.gold = clamp(player.gold + batGold, 0, config.maxGold);
+      result.outcomes.push('You crush a few bats and find ' + batGold + ' gold in their nest.');
+      break;
+      
+    case 'herbs':
+      const herbHeal = Math.floor(player.maxhp * random(15, 35) / 100);
+      player.hp = clamp(player.hp + herbHeal, 1, player.maxhp);
+      result.outcomes.push('You brew the herbs into a tea and restore ' + herbHeal + ' HP!');
+      break;
+      
+    case 'traveler':
+      const travelerGold = random(20, 100) * (1 + player.level * 0.2);
+      player.gold = clamp(player.gold + Math.floor(travelerGold), 0, config.maxGold);
+      result.outcomes.push('The grateful traveler gives you ' + Math.floor(travelerGold) + ' gold!');
+      break;
+  }
+  
+  savePlayer(nick, player);
+  return result;
+}
+
+export function decrementFights(nick) {
+  const player = loadPlayer(nick);
+  if (!player) return false;
+  player.fights = clamp(player.fights - 1, 0, config.maxFightsPerDay);
+  savePlayer(nick, player);
+  return true;
+}
+
 export function fightMonster(nick) {
   const player = loadPlayer(nick);
   if (!player) return { error: 'Player not found!' };
-  
-  if (player.fights <= 0) {
-    return { error: 'No forest fights left! Stay at the Inn to be safe.' };
-  }
   
   if (player.hp <= 0) {
     return { error: 'You are dead! You need to rest at the Inn.' };
   }
   
-  player.fights--;
   const monster = getRandomMonster(player.level);
   
   savePlayer(nick, player);
@@ -381,8 +492,12 @@ export function depositBank(nick, amount) {
   const player = loadPlayer(nick);
   if (!player) return { error: 'Player not found!' };
   
-  if (amount <= 0 || amount > player.gold) {
+  if (!Number.isInteger(amount) || amount <= 0 || amount > player.gold) {
     return { error: 'Invalid amount or insufficient funds!' };
+  }
+  
+  if (player.gold < 0) {
+    player.gold = 0;
   }
   
   player.gold -= amount;
@@ -397,8 +512,12 @@ export function withdrawBank(nick, amount) {
   const player = loadPlayer(nick);
   if (!player) return { error: 'Player not found!' };
   
-  if (amount <= 0 || amount > player.bank) {
+  if (!Number.isInteger(amount) || amount <= 0 || amount > player.bank) {
     return { error: 'Invalid amount or insufficient funds!' };
+  }
+  
+  if (player.bank < 0) {
+    player.bank = 0;
   }
   
   player.bank -= amount;
@@ -473,8 +592,8 @@ export function getPlayerList() {
   const players = getAllPlayers();
   cachedPlayerList = players
     .filter(p => p.dead === 0)
-    .sort((a, b) => b.level - a.level || b.xp - a.xp)
-    .slice(0, 20);
+    .sort((a, b) => b.level - a.level || b.xp - b.xp)
+    .slice(0, 50);
   playerListCacheTime = now;
   return cachedPlayerList;
 }
@@ -509,17 +628,19 @@ export function isPlayerDead(nick) {
   const player = loadPlayer(nick);
   if (!player) return false;
   
-  if (!player.dead_until) return false;
-  
   const now = Date.now();
-  if (now < player.dead_until) {
+  
+  if (player.dead === 1 && player.dead_until && now < player.dead_until) {
     return { dead: true, remaining: player.dead_until - now };
   }
   
-  player.dead_until = null;
-  player.dead = 0;
-  savePlayer(nick, player);
-  return { dead: false };
+  if (player.dead === 1 && (!player.dead_until || now >= player.dead_until)) {
+    player.dead = 0;
+    player.dead_until = null;
+    savePlayer(nick, player);
+  }
+  
+  return false;
 }
 
 export function killPlayer(nick, minutes) {

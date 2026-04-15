@@ -261,3 +261,66 @@ export const defaultPlayer = {
   mastered3: -1,
   baraks_visited_today: 0
 };
+
+export const forestEvents = [
+  {
+    name: 'Treasure Chest',
+    chance: 5,
+    message: 'You stumble upon a hidden treasure chest!',
+    type: 'treasure'
+  },
+  {
+    name: 'Bandit Ambush',
+    chance: 10,
+    message: 'A bandit leaps out from behind a tree!',
+    type: 'bandit'
+  },
+  {
+    name: 'Healing Fairy',
+    chance: 8,
+    message: 'A glowing fairy appears and sprinkles magic dust on you!',
+    type: 'fairy'
+  },
+  {
+    name: 'Strange Noise',
+    chance: 5,
+    message: 'You hear strange noises in the distance... but nothing happens.',
+    type: 'nothing'
+  },
+  {
+    name: 'Wandering Merchant',
+    chance: 5,
+    message: 'A mysterious merchant approaches you with wares to sell.',
+    type: 'merchant'
+  },
+  {
+    name: 'Ancient Ruins',
+    chance: 3,
+    message: 'You discover ancient ruins with strange inscriptions...',
+    type: 'ruins'
+  },
+  {
+    name: 'Snow Storm',
+    chance: 5,
+    message: 'A sudden snow storm chills you to the bone!',
+    type: 'snow'
+  },
+  {
+    name: 'Vampire Bat Swarm',
+    chance: 8,
+    message: 'A swarm of vampire bats attacks you!',
+    type: 'bats'
+  },
+  {
+    name: 'Mysterious Herbs',
+    chance: 6,
+    message: 'You find some mysterious herbs growing nearby.',
+    type: 'herbs'
+  },
+  {
+    name: 'Lost Traveler',
+    chance: 5,
+    message: 'A lost traveler asks for directions. In gratitude, they give you some gold.',
+    type: 'traveler'
+  }
+];

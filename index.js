@@ -11,6 +11,7 @@ const PLAYER_STATES = {
   CREATE_SEX: 'create_sex',
   MAIN: 'main',
   FOREST: 'forest',
+  FOREST_EVENT: 'forest_event',
   FIGHT: 'fight',
   WEAPONS: 'weapons',
   WEAPONS_BUY: 'weapons_buy',
@@ -44,6 +45,9 @@ const C = {};
 
 function g(val) { return '' + val; }
 function r(val) { return '' + val; }
+function random(min, max) {
+  return Math.floor(Math.random() * (max - min + 1)) + min;
+}
 function w(val) { return '' + val; }
 
 const FLOOD_DELAY = 1000;
@@ -450,7 +454,7 @@ function showTavern(nick) {
 }
 
 function showPeople(nick) {
-  const players = game.getPlayerList();
+  const allPlayers = getAllPlayers();
   
   const lines = [
     '',
@@ -458,11 +462,11 @@ function showPeople(nick) {
     border()
   ];
 
-  if (players.length === 0) {
+  if (allPlayers.length === 0) {
     lines.push('  No warriors currently online');
   } else {
-    players.slice(0, 15).forEach((p, i) => {
-      const dead = p.dead ? ' ' + r('[DEAD]') : '';
+    allPlayers.forEach((p, i) => {
+      const dead = p.dead ? ' ' + r('(DEAD)') : '';
       const inn = p.stayinn ? ' [INN]' : '';
       const lvl = p.level.toString().padStart(2, ' ');
       lines.push(' ' + w(lvl) + ' ' + p.name + ' - Level ' + g(p.level) + ' ' + game.classNames[p.class] + dead + inn);
@@ -470,7 +474,7 @@ function showPeople(nick) {
   }
   
   lines.push(border());
-  lines.push('  Total warriors: ' + g(players.length));
+  lines.push('  Total warriors: ' + g(allPlayers.length));
   lines.push('');
   lines.push(w('(R)eturn to town'));
   lines.push('');
@@ -687,9 +691,8 @@ function processMasterAttack(nick) {
     lines.push('');
     
     userState.currentMonster = null;
-    flushQueue(nick);
+    userState.state = PLAYER_STATES.NONE;
     sendLines(nick, lines);
-    clearState(nick);
     return;
   }
 
@@ -890,6 +893,9 @@ function processPlayerAttack(nick) {
     const targetPlayer = loserNick ? loadPlayer(loserNick) : null;
     if (targetPlayer) {
       targetPlayer.gold -= goldStolen;
+      targetPlayer.dead = 1;
+      targetPlayer.dead_until = Date.now() + (10 * 60 * 1000);
+      targetPlayer.hp = 1;
       savePlayer(loserNick, targetPlayer);
     }
     
@@ -952,15 +958,8 @@ function processPlayerAttack(nick) {
     }
     
     userState.currentMonster = null;
-    flushQueue(nick);
+    userState.state = PLAYER_STATES.NONE;
     sendLines(nick, lines);
-    
-    const goldLost = monster.gold;
-    const victimMsg = 'SLAUGHTER RESULT: You were defeated by ' + monster.name + '! You lost ' + goldLost + ' gold! You are dead for 10 minutes!';
-    console.log('[SLAUGHTER] -> ' + nick + ' (victim): ' + victimMsg);
-    sendDirectNotice(nick, victimMsg);
-    
-    clearState(nick);
     return;
   }
 
@@ -997,7 +996,25 @@ function showLogin(nick) {
   
   if (player) {
     console.log('[showLogin] player found: ' + player.name);
+    
+    const deadCheck = game.isPlayerDead(playerNick);
+    if (deadCheck && deadCheck.dead) {
+      const totalSeconds = Math.ceil(deadCheck.remaining / 1000);
+      const minutes = Math.floor(totalSeconds / 60);
+      const seconds = totalSeconds % 60;
+      const timeStr = minutes > 0 ? (seconds > 0 ? minutes + ' min ' + seconds + ' sec' : minutes + ' min') : seconds + ' sec';
+      sendNotice(nick, 'You are dead! Wait ' + timeStr + ' before you can re-enter the town.');
+      return;
+    }
+    
     player.irc_nick = nick;
+    
+    const now = Date.now();
+    if (player.pfights_timer && now >= player.pfights_timer) {
+      player.pfights = 3;
+      player.pfights_timer = null;
+    }
+    
     savePlayer(playerNick, player);
     nickToCharacter.set(nick, player.name);
     characterToNick.set(player.name.toLowerCase(), nick);
@@ -1086,6 +1103,55 @@ function showSexSelect(nick) {
 }
 
 function startFight(nick) {
+  const stats = game.getPlayerStats(nick);
+  if (!stats) {
+    sendNotice(nick, 'Error loading player stats!');
+    showForest(nick);
+    return;
+  }
+  
+  if (stats.fights <= 0) {
+    sendNotice(nick, 'No forest fights left! Stay at the Inn to be safe.');
+    showForest(nick);
+    return;
+  }
+  
+  if (stats.hp <= 0) {
+    sendNotice(nick, 'You are dead! You need to rest at the Inn.');
+    showForest(nick);
+    return;
+  }
+  
+  const eventChance = random(1, 100);
+  if (eventChance <= 40) {
+    const event = game.checkForestEvent(nick);
+    if (event) {
+      const lines = [
+        '',
+        border(),
+        r('  EVENT: ' + event.event),
+        border(),
+        '',
+        event.message,
+        ''
+      ];
+      event.outcomes.forEach(outcome => {
+        lines.push(outcome);
+      });
+      lines.push('');
+      lines.push('(R)eturn to Forest');
+      lines.push('');
+      
+      const userState = getState(nick);
+      userState.temp = { eventOutcome: event };
+      
+      sendLines(nick, lines);
+      setState(nick, PLAYER_STATES.FOREST_EVENT);
+      return;
+    }
+  }
+  
+  game.decrementFights(nick);
   const result = game.fightMonster(nick);
   
   if (result.error) {
@@ -1249,13 +1315,17 @@ function processRun(nick) {
 }
 
 function handleCommand(nick, cmd, args) {
-  clearMessageQueue(nick);
   const deadCheck = game.isPlayerDead(nick);
   if (deadCheck && deadCheck.dead) {
-    const minutesLeft = Math.ceil(deadCheck.remaining / 60000);
-    sendNotice(nick, 'You are dead! Wait ' + minutesLeft + ' minute(s) before playing again.');
+    const totalSeconds = Math.ceil(deadCheck.remaining / 1000);
+    const minutes = Math.floor(totalSeconds / 60);
+    const seconds = totalSeconds % 60;
+    const timeStr = minutes > 0 ? (seconds > 0 ? minutes + ' min ' + seconds + ' sec' : minutes + ' min') : seconds + ' sec';
+    sendNotice(nick, 'You are dead! Wait ' + timeStr + ' before you can re-enter the town.');
     return;
   }
+  
+  clearMessageQueue(nick);
 
   const userState = getState(nick);
   const state = userState.state;
@@ -1286,7 +1356,7 @@ function handleCommand(nick, cmd, args) {
       console.log('CREATE_NAME: name.length=' + name.length + ', charCodes=' + [...name].map(c => c.charCodeAt(0)).join(','));
       if (name.length < 1 || name.length > 20) {
         console.log('CREATE_NAME: REJECTING name, length=' + name.length);
-        sendNotice(nick, 'Name must be 1-20 characters!');
+        sendNotice(nick, 'Name must be 1-100 characters!');
         showCreateMenu(nick);
         return;
       }
@@ -1361,6 +1431,9 @@ function handleCommand(nick, cmd, args) {
           setPlayerOffline(nick);
           clearState(nick);
           break;
+        default:
+          sendNotice(nick, 'The Town Square - F,S,K,A,H,V,I,T,Y,L,W,D,C,O,X,M,P,Q,?');
+          break;
       }
       break;
 
@@ -1375,6 +1448,21 @@ function handleCommand(nick, cmd, args) {
           clearState(nick);
           break;
         case '?': showForest(nick); break;
+        default:
+          sendNotice(nick, 'The Forest - L,H,R,Q');
+          break;
+      }
+      break;
+
+    case PLAYER_STATES.FOREST_EVENT:
+      switch (cmdLower) {
+        case 'r': case 'R':
+          userState.temp = {};
+          showForest(nick);
+          break;
+        default:
+          sendNotice(nick, 'Press R to return to the forest.');
+          break;
       }
       break;
 
@@ -1392,6 +1480,9 @@ function handleCommand(nick, cmd, args) {
           userState.currentMonster = null;
           showMainMenu(nick);
           break;
+        default:
+          sendNotice(nick, 'Forest Fight - A,R,Q');
+          break;
       }
       break;
 
@@ -1408,6 +1499,11 @@ function handleCommand(nick, cmd, args) {
         sendNotice(nick, 'Enter weapon number to sell:');
         setState(nick, PLAYER_STATES.WEAPONS_SELL);
       }
+      if (cmdLower === '?') {
+        showWeapons(nick);
+        break;
+      }
+      sendNotice(nick, 'King Arthurs Weapons - B,S,R,Q');
       break;
 
     case PLAYER_STATES.WEAPONS_BUY:
@@ -1453,6 +1549,11 @@ function handleCommand(nick, cmd, args) {
         sendNotice(nick, 'Enter armor number to sell:');
         setState(nick, PLAYER_STATES.ARMOR_SELL);
       }
+      if (cmdLower === '?') {
+        showArmor(nick);
+        break;
+      }
+      sendNotice(nick, 'Abduls Armour - B,S,R,Q');
       break;
 
     case PLAYER_STATES.ARMOR_BUY:
@@ -1498,6 +1599,7 @@ function handleCommand(nick, cmd, args) {
         sendNotice(nick, 'Enter amount to withdraw:');
         setState(nick, PLAYER_STATES.BANK_WITHDRAW);
       }
+      sendNotice(nick, 'Ye Old Bank - D,W,R,Q');
       break;
 
     case PLAYER_STATES.BANK_DEPOSIT:
@@ -1542,6 +1644,8 @@ function handleCommand(nick, cmd, args) {
         } else {
           sendNotice(nick, result.error);
         }
+      } else {
+        sendNotice(nick, 'Healers Hut - H,R,Q');
       }
       showHealer(nick);
       break;
@@ -1558,10 +1662,11 @@ function handleCommand(nick, cmd, args) {
         } else {
           sendNotice(nick, result.error);
         }
-      }
-      if (cmdLower === 'l') {
+      } else if (cmdLower === 'l') {
         game.leaveInn(nick);
         sendNotice(nick, 'You leave the inn. You are no longer protected.');
+      } else {
+        sendNotice(nick, 'The Inn - S,L,R,Q');
       }
       showInn(nick);
       break;
@@ -1582,6 +1687,8 @@ function handleCommand(nick, cmd, args) {
           '  (Press R to return to town)',
           ''
         ]);
+      } else {
+        sendNotice(nick, 'The Tavern - T,R,Q');
       }
       break;
 
@@ -1599,6 +1706,7 @@ function handleCommand(nick, cmd, args) {
         startMasterFight(nick);
         break;
       }
+      sendNotice(nick, 'Turgons Warrior Training - Q,C,R');
       break;
 
     case PLAYER_STATES.TRAINING_QUESTION:
@@ -1606,6 +1714,7 @@ function handleCommand(nick, cmd, args) {
         showTraining(nick);
         break;
       }
+      sendNotice(nick, 'Training Question - R');
       break;
 
     case PLAYER_STATES.FIGHT_MASTER:
@@ -1619,6 +1728,7 @@ function handleCommand(nick, cmd, args) {
         showTraining(nick);
         break;
       }
+      sendNotice(nick, 'Fight Master - A,R');
       break;
 
     case PLAYER_STATES.SLAUGHTER:
@@ -1632,6 +1742,7 @@ function handleCommand(nick, cmd, args) {
         startPlayerFight(nick, targetNum);
         break;
       }
+      sendNotice(nick, 'Slaughter - Enter number or R,Q');
       break;
 
     case PLAYER_STATES.FIGHT_PLAYER:
@@ -1645,6 +1756,7 @@ function handleCommand(nick, cmd, args) {
         showSlaughter(nick);
         break;
       }
+      sendNotice(nick, 'Player Fight - A,R');
       break;
 
     case PLAYER_STATES.PEOPLE:
@@ -1655,6 +1767,7 @@ function handleCommand(nick, cmd, args) {
         showMainMenu(nick);
         break;
       }
+      sendNotice(nick, 'Press R to return to town');
       break;
   }
 }
