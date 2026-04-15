@@ -406,6 +406,10 @@ export function buyWeapon(nick, weaponNum) {
     return { error: 'Invalid weapon number!' };
   }
   
+  if (player.weapon_num > 1) {
+    return { error: 'You must sell your current weapon first!' };
+  }
+  
   const weapon = weapons[weaponNum - 1];
   
   if (player.str < weapon.strReq) {
@@ -432,11 +436,19 @@ export function sellWeapon(nick, weaponNum) {
     return { error: 'Invalid weapon number!' };
   }
   
+  if (weaponNum === 1) {
+    return { error: 'You cannot sell your fists!' };
+  }
+  
+  if (player.weapon_num !== weaponNum) {
+    return { error: 'You can only sell weapons you have equipped!' };
+  }
+  
   const weapon = weapons[weaponNum - 1];
   const sellPrice = Math.floor(weapon.cost * 0.5);
   
   player.gold += sellPrice;
-  player.weapon_num = weaponNum;
+  player.weapon_num = 1;
   
   savePlayer(nick, player);
   
@@ -449,6 +461,10 @@ export function buyArmor(nick, armorNum) {
   
   if (armorNum < 1 || armorNum > armors.length) {
     return { error: 'Invalid armor number!' };
+  }
+  
+  if (player.armor_num > 1) {
+    return { error: 'You must sell your current armor first!' };
   }
   
   const armor = armors[armorNum - 1];
@@ -477,11 +493,19 @@ export function sellArmor(nick, armorNum) {
     return { error: 'Invalid armor number!' };
   }
   
+  if (armorNum === 1) {
+    return { error: 'You cannot sell your coat!' };
+  }
+  
+  if (player.armor_num !== armorNum) {
+    return { error: 'You can only sell armor you have equipped!' };
+  }
+  
   const armor = armors[armorNum - 1];
   const sellPrice = Math.floor(armor.cost * 0.5);
   
   player.gold += sellPrice;
-  player.armor_num = armorNum;
+  player.armor_num = 1;
   
   savePlayer(nick, player);
   

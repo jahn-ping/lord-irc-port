@@ -789,23 +789,39 @@ function startPlayerFight(nick, targetIndex) {
   }
 
   const target = onlinePlayers[targetIndex - 1];
-  const stats = game.getPlayerStats(nick);
+  const player = loadPlayer(nick);
+  const now = Date.now();
+  
+  console.log('[PFIGHTS] ' + nick + ' before fight - pfights: ' + player.pfights + ', timer: ' + player.pfights_timer);
 
-  if (stats.pfights <= 0) {
-    const player = loadPlayer(nick);
-    const now = Date.now();
-    if (player.pfights_timer && now < player.pfights_timer) {
-      const minutesLeft = Math.ceil((player.pfights_timer - now) / 60000);
-      sendNotice(nick, 'No player fights left! Try again in ' + minutesLeft + ' minute(s).');
-    } else {
-      player.pfights = 3;
-      player.pfights_timer = now + (60 * 60 * 1000);
-      savePlayer(nick, player);
-      sendNotice(nick, 'You have ' + player.pfights + ' player fights now!');
-    }
+  if (player.pfights_timer && now < player.pfights_timer) {
+    const minutesLeft = Math.ceil((player.pfights_timer - now) / 60000);
+    sendNotice(nick, 'No player fights left! Try again in ' + minutesLeft + ' minute(s).');
     showSlaughter(nick);
     return;
   }
+
+  if (player.pfights <= 0) {
+    player.pfights = 3;
+    player.pfights_timer = now + (60 * 60 * 1000);
+    savePlayer(nick, player);
+    sendNotice(nick, 'You have ' + player.pfights + ' player fights now!');
+  }
+
+  player.pfights--;
+  console.log('[PFIGHTS] ' + nick + ' after decrement - pfights: ' + player.pfights);
+  if (player.pfights <= 0) {
+    player.pfights_timer = now + (60 * 60 * 1000);
+  }
+  savePlayer(nick, player);
+  console.log('[PFIGHTS] ' + nick + ' saved - pfights: ' + player.pfights);
+  
+  let timerMsg = '';
+  if (player.pfights_timer) {
+    const minsLeft = Math.ceil((player.pfights_timer - now) / 60000);
+    timerMsg = ' Timer resets in ' + minsLeft + ' min.';
+  }
+  sendNotice(nick, 'You have ' + player.pfights + ' of 3 player fights remaining!' + timerMsg);
 
   if (target.stayinn) {
     sendNotice(nick, target.name + ' is safe at the Inn!');
@@ -837,7 +853,7 @@ function startPlayerFight(nick, targetIndex) {
   if (targetNick) {
     const warnMsg = 'WARNING! ' + (attackerChar?.name || nick) + ' is attacking you! Fight back by pressing S to enter slaughter and attack them!';
     console.log('[SLAUGHTER] -> ' + targetNick + ': ' + warnMsg);
-    sendDirectNotice(targetNick, warnMsg);
+    sendImmediate(targetNick, warnMsg);
   }
 
   const lines = [
@@ -882,17 +898,13 @@ function processPlayerAttack(nick) {
     
     const goldStolen = Math.floor(Math.random() * monster.gold) + 10;
     const player = loadPlayer(nick);
-    player.gold += goldStolen;
-    player.pfights--;
-    if (player.pfights <= 0) {
-      player.pfights_timer = Date.now() + (60 * 60 * 1000);
-    }
+    player.gold = Math.min(player.gold + goldStolen, config.maxGold);
     savePlayer(nick, player);
 
     const loserNick = getPlayerNick(monster.name);
     const targetPlayer = loserNick ? loadPlayer(loserNick) : null;
     if (targetPlayer) {
-      targetPlayer.gold -= goldStolen;
+      targetPlayer.gold = Math.max(targetPlayer.gold - goldStolen, 0);
       targetPlayer.dead = 1;
       targetPlayer.dead_until = Date.now() + (10 * 60 * 1000);
       targetPlayer.hp = 1;
@@ -1126,6 +1138,8 @@ function startFight(nick) {
   if (eventChance <= 40) {
     const event = game.checkForestEvent(nick);
     if (event) {
+      clearMessageQueue(nick);
+      
       const lines = [
         '',
         border(),
@@ -1325,10 +1339,12 @@ function handleCommand(nick, cmd, args) {
     return;
   }
   
-  clearMessageQueue(nick);
-
   const userState = getState(nick);
   const state = userState.state;
+  
+  if (state !== PLAYER_STATES.FOREST_EVENT) {
+    clearMessageQueue(nick);
+  }
   const player = playerExists(nick) ? loadPlayer(nick) : null;
 
   const cmdUpper = cmd.toUpperCase();
@@ -1457,6 +1473,7 @@ function handleCommand(nick, cmd, args) {
     case PLAYER_STATES.FOREST_EVENT:
       switch (cmdLower) {
         case 'r': case 'R':
+          flushQueue(nick);
           userState.temp = {};
           showForest(nick);
           break;

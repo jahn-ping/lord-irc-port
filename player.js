@@ -2,7 +2,7 @@ import fs from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import { config } from './config.js';
-import { defaultPlayer } from './gameData.js';
+import { defaultPlayer, weapons, armors } from './gameData.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const playersDir = path.join(__dirname, config.playersDir);
@@ -61,7 +61,33 @@ export function loadPlayer(nick) {
   try {
     const data = fs.readFileSync(filepath, 'utf-8');
     console.log('loadPlayer: data length=' + data.length);
-    return JSON.parse(data);
+    const player = JSON.parse(data);
+    
+    let fixed = false;
+    
+    if (player.weapon_num > 1) {
+      const weapon = weapons[player.weapon_num - 1];
+      if (weapon && player.str < weapon.strReq) {
+        console.log('[VALIDATION] ' + player.name + ' has weapon ' + weapon.name + ' but only ' + player.str + ' str (needs ' + weapon.strReq + '). Downgrading to fists.');
+        player.weapon_num = 1;
+        fixed = true;
+      }
+    }
+    
+    if (player.armor_num > 1) {
+      const armor = armors[player.armor_num - 1];
+      if (armor && player.str < armor.strReq) {
+        console.log('[VALIDATION] ' + player.name + ' has armor ' + armor.name + ' but only ' + player.str + ' str (needs ' + armor.strReq + '). Downgrading to Coat.');
+        player.armor_num = 1;
+        fixed = true;
+      }
+    }
+    
+    if (fixed) {
+      savePlayer(nick, player);
+    }
+    
+    return player;
   } catch (err) {
     console.error(`Error loading player ${nick}:`, err);
     return null;
