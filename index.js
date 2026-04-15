@@ -36,6 +36,8 @@ const PLAYER_STATES = {
 };
 
 const userStates = new Map();
+const nickToCharacter = new Map();
+const characterToNick = new Map();
 
 // No IRC colors for now
 const C = {};
@@ -152,6 +154,7 @@ function showMainMenu(nick) {
   sendLines(nick, [
     '',
     r('  Legend of the Red Dragon - Town Square'),
+    '  Use ? if stuck and q,r to stop msg',
     border(),
     '  The streets are crowded, it is difficult to',
     '  push your way through the mob....',
@@ -167,7 +170,6 @@ function showMainMenu(nick) {
     w('(P)eople Online            (Q)uit to Fields'),
     '',
     statLine(nick),
-    r('Town Square') + w('  (F,S,K,A,H,V,I,T,Y,L,W,D,C,O,X,M,P,Q) (? for menu)'),
     ''
   ]);
   setState(nick, PLAYER_STATES.MAIN);
@@ -694,7 +696,7 @@ function showSlaughter(nick) {
   if (!stats) return;
 
   const players = game.getPlayerList();
-  const onlinePlayers = players.filter(p => 
+  const otherPlayers = players.filter(p => 
     p.name.toLowerCase() !== nick.toLowerCase() && 
     p.dead === 0
   );
@@ -706,13 +708,13 @@ function showSlaughter(nick) {
     ''
   ]);
 
-  if (onlinePlayers.length === 0) {
+  if (otherPlayers.length === 0) {
     sendLines(nick, [
-      '  No other players online.',
+      '  No other players available.',
       ''
     ]);
   } else {
-    onlinePlayers.forEach((p, i) => {
+    otherPlayers.forEach((p, i) => {
       sendLines(nick, [
         '(' + g(i + 1) + ') ' + p.name + ' - Level ' + g(p.level) + ' ' + game.classNames[p.class],
         '    HP: (' + g(p.hp) + ' of ' + g(p.maxhp) + ')',
@@ -745,7 +747,17 @@ function startPlayerFight(nick, targetIndex) {
   const stats = game.getPlayerStats(nick);
 
   if (stats.pfights <= 0) {
-    sendNotice(nick, 'No player fights left today!');
+    const player = loadPlayer(nick);
+    const now = Date.now();
+    if (player.pfights_timer && now < player.pfights_timer) {
+      const minutesLeft = Math.ceil((player.pfights_timer - now) / 60000);
+      sendNotice(nick, 'No player fights left! Try again in ' + minutesLeft + ' minute(s).');
+    } else {
+      player.pfights = 3;
+      player.pfights_timer = now + (60 * 60 * 1000);
+      savePlayer(nick, player);
+      sendNotice(nick, 'You have ' + player.pfights + ' player fights now!');
+    }
     showSlaughter(nick);
     return;
   }
@@ -774,6 +786,11 @@ function startPlayerFight(nick, targetIndex) {
 
   const userState = getState(nick);
   userState.currentMonster = fightMonster;
+
+  const targetNick = characterToNick.get(target.name.toLowerCase());
+  if (targetNick) {
+    sendNotice(targetNick, 'WARNING! ' + nick + ' is attacking you! Fight back by pressing S to enter slaughter and attack them!');
+  }
 
   const lines = [
     '',
@@ -819,6 +836,9 @@ function processPlayerAttack(nick) {
     const player = loadPlayer(nick);
     player.gold += goldStolen;
     player.pfights--;
+    if (player.pfights <= 0) {
+      player.pfights_timer = Date.now() + (60 * 60 * 1000);
+    }
     savePlayer(nick, player);
 
     const targetPlayer = game.getPlayerByName(monster.name);
@@ -877,6 +897,9 @@ function processPlayerAttack(nick) {
 
 function showLogin(nick) {
   if (playerExists(nick)) {
+    const player = loadPlayer(nick);
+    nickToCharacter.set(nick, player.name);
+    characterToNick.set(player.name.toLowerCase(), nick);
     showMainMenu(nick);
   } else {
     sendLines(nick, [
@@ -1170,6 +1193,8 @@ function handleCommand(nick, cmd, args) {
         
         if (result.success) {
           game.healPlayer(nick);
+          nickToCharacter.set(nick, result.player.name);
+          characterToNick.set(result.player.name.toLowerCase(), nick);
           showMainMenu(nick);
         } else {
           sendNotice(nick, result.message);
@@ -1461,6 +1486,7 @@ function handleCommand(nick, cmd, args) {
       break;
 
     case PLAYER_STATES.SLAUGHTER:
+      flushQueue(nick);
       if (cmdLower === 'r') {
         showMainMenu(nick);
         break;
