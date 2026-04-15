@@ -14,7 +14,8 @@ function ensurePlayersDir() {
 }
 
 function getPlayerPath(nick) {
-  return path.join(playersDir, `${nick.toLowerCase()}.json`);
+  const safeNick = nick.replace(/[<>:"/\\|?*]/g, '_');
+  return path.join(playersDir, `${safeNick.toLowerCase()}.json`);
 }
 
 export function playerExists(nick) {

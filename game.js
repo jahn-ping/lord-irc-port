@@ -383,7 +383,7 @@ export function winMonsterFight(nick, monster) {
   };
 }
 
-export function loseMonsterFight(nick, monsterGold) {
+export function loseMonsterFight(nick, monsterGold, monsterName) {
   const player = loadPlayer(nick);
   if (!player) return { error: 'Player not found!' };
   
@@ -391,6 +391,7 @@ export function loseMonsterFight(nick, monsterGold) {
   player.gold -= lostGold;
   player.dead = 1;
   player.dead_until = Date.now() + (10 * 60 * 1000);
+  player.killed_by = 'Monster: ' + (monsterName || 'Unknown');
   player.hp = 1;
   
   savePlayer(nick, player);
@@ -667,14 +668,30 @@ export function isPlayerDead(nick) {
   return false;
 }
 
-export function killPlayer(nick, minutes) {
+export function killPlayer(nick, minutes, killedBy = 'Unknown') {
   const player = loadPlayer(nick);
   if (!player) return false;
   
   player.dead = 1;
   player.dead_until = Date.now() + (minutes * 60 * 1000);
+  player.killed_by = killedBy;
   player.hp = 1;
   savePlayer(nick, player);
+  return true;
+}
+
+export function resurrectPlayer(nick) {
+  const player = loadPlayer(nick);
+  if (!player) return false;
+  
+  if (player.dead === 1) {
+    player.dead = 0;
+    player.dead_until = null;
+    player.hp = player.maxhp;
+    player.killed_by = '';
+    savePlayer(nick, player);
+    console.log('[RESURRECT] ' + player.name + ' has been resurrected');
+  }
   return true;
 }
 

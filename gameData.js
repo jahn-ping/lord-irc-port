@@ -259,7 +259,8 @@ export const defaultPlayer = {
   mastered: -1,
   mastered2: -1,
   mastered3: -1,
-  baraks_visited_today: 0
+  baraks_visited_today: 0,
+  killed_by: ''
 };
 
 export const forestEvents = [

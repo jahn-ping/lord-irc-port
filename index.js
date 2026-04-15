@@ -16,9 +16,13 @@ const PLAYER_STATES = {
   WEAPONS: 'weapons',
   WEAPONS_BUY: 'weapons_buy',
   WEAPONS_SELL: 'weapons_sell',
+  CONFIRM_WEAPON_SELL: 'confirm_weapon_sell',
+  CONFIRM_WEAPON_BUY: 'confirm_weapon_buy',
   ARMOR: 'armor',
   ARMOR_BUY: 'armor_buy',
   ARMOR_SELL: 'armor_sell',
+  CONFIRM_ARMOR_SELL: 'confirm_armor_sell',
+  CONFIRM_ARMOR_BUY: 'confirm_armor_buy',
   BANK: 'bank',
   BANK_DEPOSIT: 'bank_deposit',
   BANK_WITHDRAW: 'bank_withdraw',
@@ -456,25 +460,43 @@ function showTavern(nick) {
 function showPeople(nick) {
   const allPlayers = getAllPlayers();
   
+  allPlayers.forEach((p) => {
+    if (p.dead === 1 && p.dead_until && Date.now() >= p.dead_until) {
+      game.resurrectPlayer(p.nick);
+    }
+  });
+  
+  const updatedPlayers = getAllPlayers();
+  
   const lines = [
     '',
     r('  Warriors In The Realm Now'),
     border()
   ];
 
-  if (allPlayers.length === 0) {
+  if (updatedPlayers.length === 0) {
     lines.push('  No warriors currently online');
   } else {
-    allPlayers.forEach((p, i) => {
-      const dead = p.dead ? ' ' + r('(DEAD)') : '';
-      const inn = p.stayinn ? ' [INN]' : '';
+    updatedPlayers.forEach((p, i) => {
       const lvl = p.level.toString().padStart(2, ' ');
-      lines.push(' ' + w(lvl) + ' ' + p.name + ' - Level ' + g(p.level) + ' ' + game.classNames[p.class] + dead + inn);
+      
+      if (p.dead === 1) {
+        const now = Date.now();
+        const remaining = p.dead_until ? Math.max(0, p.dead_until - now) : 0;
+        const mins = Math.floor(remaining / 60000);
+        const secs = Math.floor((remaining % 60000) / 1000);
+        const timeStr = mins + 'm ' + secs + 's remaining';
+        const killedBy = p.killed_by || 'Unknown';
+        lines.push(' ' + w(lvl) + ' ' + p.name + ' - Level ' + g(p.level) + ' ' + game.classNames[p.class] + ' ' + r('(DEAD) [' + killedBy + '] [' + timeStr + ']'));
+      } else {
+        const inn = p.stayinn ? ' [INN]' : '';
+        lines.push(' ' + w(lvl) + ' ' + p.name + ' - Level ' + g(p.level) + ' ' + game.classNames[p.class] + inn);
+      }
     });
   }
   
   lines.push(border());
-  lines.push('  Total warriors: ' + g(allPlayers.length));
+  lines.push('  Total warriors: ' + g(updatedPlayers.length));
   lines.push('');
   lines.push(w('(R)eturn to town'));
   lines.push('');
@@ -682,12 +704,12 @@ function processMasterAttack(nick) {
   lines.push(monster.name + ' hits you for ' + g(actualDamage) + ' damage!');
 
   if (newPlayerHp <= 0) {
-    game.killPlayer(nick, 10);
+    game.killPlayer(nick, 10, 'Master: ' + monster.name);
     
     lines.push(border());
     lines.push('You have been defeated by ' + monster.name + '!');
     lines.push('You are dead for 10 minutes!');
-    lines.push(border());
+    border()
     lines.push('');
     
     userState.currentMonster = null;
@@ -898,6 +920,7 @@ function processPlayerAttack(nick) {
     
     const goldStolen = Math.floor(Math.random() * monster.gold) + 10;
     const player = loadPlayer(nick);
+    const winnerChar = loadPlayer(nick);
     player.gold = Math.min(player.gold + goldStolen, config.maxGold);
     savePlayer(nick, player);
 
@@ -907,6 +930,7 @@ function processPlayerAttack(nick) {
       targetPlayer.gold = Math.max(targetPlayer.gold - goldStolen, 0);
       targetPlayer.dead = 1;
       targetPlayer.dead_until = Date.now() + (10 * 60 * 1000);
+      targetPlayer.killed_by = 'Player: ' + (winnerChar?.name || nick);
       targetPlayer.hp = 1;
       savePlayer(loserNick, targetPlayer);
     }
@@ -917,7 +941,6 @@ function processPlayerAttack(nick) {
     lines.push(border());
     lines.push('');
     
-    const winnerChar = loadPlayer(nick);
     const loserChar = targetPlayer;
     
     console.log('[DEBUG WIN] monster.name=' + monster.name + ', loserNick=' + loserNick + ', loserChar=' + (loserChar ? loserChar.name : 'null'));
@@ -950,7 +973,7 @@ function processPlayerAttack(nick) {
   lines.push(monster.name + ' hits you for ' + g(actualDamage) + ' damage!');
 
   if (newPlayerHp <= 0) {
-    game.killPlayer(nick, 10);
+    game.killPlayer(nick, 10, 'Player: ' + monster.name);
     
     lines.push(border());
     lines.push('You have been defeated by ' + monster.name + '!');
@@ -1262,7 +1285,7 @@ function processAttack(nick) {
     showForest(nick);
     return;
   } else if (result.defeat) {
-    const loss = game.loseMonsterFight(nick, monster.gold);
+    const loss = game.loseMonsterFight(nick, monster.gold, monster.name);
     
     lines.push(border());
     lines.push('You have been killed by ' + monster.name + '!');
@@ -1513,8 +1536,17 @@ function handleCommand(nick, cmd, args) {
         setState(nick, PLAYER_STATES.WEAPONS_BUY);
       }
       if (cmdLower === 's') {
-        sendNotice(nick, 'Enter weapon number to sell:');
-        setState(nick, PLAYER_STATES.WEAPONS_SELL);
+        const stats = game.getPlayerStats(nick);
+        if (stats.weapon_num === 1) {
+          sendNotice(nick, 'You cannot sell your fists!');
+          break;
+        }
+        const weapon = game.weapons[stats.weapon_num - 1];
+        const sellPrice = Math.floor(weapon.cost * 0.5);
+        userState.temp = { sellWeaponNum: stats.weapon_num };
+        sendNotice(nick, 'Sell ' + weapon.name + ' for ' + g(game.formatNumber(sellPrice)) + ' gold? (Y/N)');
+        setState(nick, PLAYER_STATES.CONFIRM_WEAPON_SELL);
+        break;
       }
       if (cmdLower === '?') {
         showWeapons(nick);
@@ -1526,16 +1558,14 @@ function handleCommand(nick, cmd, args) {
     case PLAYER_STATES.WEAPONS_BUY:
       const wNum = parseInt(cmd);
       if (!isNaN(wNum) && wNum >= 1 && wNum <= game.weapons.length) {
-        const result = game.buyWeapon(nick, wNum);
-        if (result.success) {
-          sendNotice(nick, 'You bought ' + result.weapon + ' for ' + g(game.formatNumber(result.cost)) + ' gold!');
-        } else {
-          sendNotice(nick, result.error);
-        }
+        const weapon = game.weapons[wNum - 1];
+        userState.temp = { buyWeaponNum: wNum };
+        sendNotice(nick, 'Buy ' + weapon.name + ' for ' + g(game.formatNumber(weapon.cost)) + ' gold? (Y/N)');
+        setState(nick, PLAYER_STATES.CONFIRM_WEAPON_BUY);
       } else {
         sendNotice(nick, 'Invalid weapon number!');
+        showWeapons(nick);
       }
-      showWeapons(nick);
       break;
 
     case PLAYER_STATES.WEAPONS_SELL:
@@ -1563,8 +1593,17 @@ function handleCommand(nick, cmd, args) {
         setState(nick, PLAYER_STATES.ARMOR_BUY);
       }
       if (cmdLower === 's') {
-        sendNotice(nick, 'Enter armor number to sell:');
-        setState(nick, PLAYER_STATES.ARMOR_SELL);
+        const stats = game.getPlayerStats(nick);
+        if (stats.armor_num === 1) {
+          sendNotice(nick, 'You cannot sell your coat!');
+          break;
+        }
+        const armor = game.armors[stats.armor_num - 1];
+        const sellPrice = Math.floor(armor.cost * 0.5);
+        userState.temp = { sellArmorNum: stats.armor_num };
+        sendNotice(nick, 'Sell ' + armor.name + ' for ' + g(game.formatNumber(sellPrice)) + ' gold? (Y/N)');
+        setState(nick, PLAYER_STATES.CONFIRM_ARMOR_SELL);
+        break;
       }
       if (cmdLower === '?') {
         showArmor(nick);
@@ -1576,16 +1615,14 @@ function handleCommand(nick, cmd, args) {
     case PLAYER_STATES.ARMOR_BUY:
       const aNum = parseInt(cmd);
       if (!isNaN(aNum) && aNum >= 1 && aNum <= game.armors.length) {
-        const result = game.buyArmor(nick, aNum);
-        if (result.success) {
-          sendNotice(nick, 'You bought ' + result.armor + ' for ' + g(game.formatNumber(result.cost)) + ' gold!');
-        } else {
-          sendNotice(nick, result.error);
-        }
+        const armor = game.armors[aNum - 1];
+        userState.temp = { buyArmorNum: aNum };
+        sendNotice(nick, 'Buy ' + armor.name + ' for ' + g(game.formatNumber(armor.cost)) + ' gold? (Y/N)');
+        setState(nick, PLAYER_STATES.CONFIRM_ARMOR_BUY);
       } else {
         sendNotice(nick, 'Invalid armor number!');
+        showArmor(nick);
       }
-      showArmor(nick);
       break;
 
     case PLAYER_STATES.ARMOR_SELL:
@@ -1600,6 +1637,70 @@ function handleCommand(nick, cmd, args) {
       } else {
         sendNotice(nick, 'Invalid armor number!');
       }
+      showArmor(nick);
+      break;
+
+    case PLAYER_STATES.CONFIRM_WEAPON_SELL:
+      if (cmdLower === 'y') {
+        const weaponNum = userState.temp.sellWeaponNum;
+        const result = game.sellWeapon(nick, weaponNum);
+        if (result.success) {
+          sendNotice(nick, 'You sold your ' + result.weapon + ' for ' + g(game.formatNumber(result.sellPrice)) + ' gold!');
+        } else {
+          sendNotice(nick, result.error);
+        }
+      } else {
+        sendNotice(nick, 'Sale cancelled.');
+      }
+      userState.temp = {};
+      showWeapons(nick);
+      break;
+
+    case PLAYER_STATES.CONFIRM_ARMOR_SELL:
+      if (cmdLower === 'y') {
+        const armorNum = userState.temp.sellArmorNum;
+        const result = game.sellArmor(nick, armorNum);
+        if (result.success) {
+          sendNotice(nick, 'You sold your ' + result.armor + ' for ' + g(game.formatNumber(result.sellPrice)) + ' gold!');
+        } else {
+          sendNotice(nick, result.error);
+        }
+      } else {
+        sendNotice(nick, 'Sale cancelled.');
+      }
+      userState.temp = {};
+      showArmor(nick);
+      break;
+
+    case PLAYER_STATES.CONFIRM_WEAPON_BUY:
+      if (cmdLower === 'y') {
+        const weaponNum = userState.temp.buyWeaponNum;
+        const result = game.buyWeapon(nick, weaponNum);
+        if (result.success) {
+          sendNotice(nick, 'You bought ' + result.weapon + ' for ' + g(game.formatNumber(result.cost)) + ' gold!');
+        } else {
+          sendNotice(nick, result.error);
+        }
+      } else {
+        sendNotice(nick, 'Purchase cancelled.');
+      }
+      userState.temp = {};
+      showWeapons(nick);
+      break;
+
+    case PLAYER_STATES.CONFIRM_ARMOR_BUY:
+      if (cmdLower === 'y') {
+        const armorNum = userState.temp.buyArmorNum;
+        const result = game.buyArmor(nick, armorNum);
+        if (result.success) {
+          sendNotice(nick, 'You bought ' + result.armor + ' for ' + g(game.formatNumber(result.cost)) + ' gold!');
+        } else {
+          sendNotice(nick, result.error);
+        }
+      } else {
+        sendNotice(nick, 'Purchase cancelled.');
+      }
+      userState.temp = {};
       showArmor(nick);
       break;
 
