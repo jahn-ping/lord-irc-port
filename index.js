@@ -1,7 +1,7 @@
 import irc from 'irc';
 import { config } from './config.js';
 import * as game from './game.js';
-import { playerExists, loadPlayer, savePlayer, getAllPlayers } from './player.js';
+import { playerExists, loadPlayer, savePlayer, getAllPlayers, setPlayerOnline, setPlayerOffline, isPlayerOnline, queueOfflineMessage, getOfflineMessages, clearOfflineMessages } from './player.js';
 
 const PLAYER_STATES = {
   NONE: 'none',
@@ -141,14 +141,6 @@ function sendNotice(nick, message) {
     const lines = message.split('\n');
     lines.forEach(line => queueMessage(nick, line));
   }
-}
-
-function sendDirectNotice(nick, message) {
-  const lines = Array.isArray(message) ? message : message.split('\n');
-  lines.forEach(line => {
-    client.notice(nick, line);
-    client.say(nick, line);
-  });
 }
 
 function sendLines(nick, lines) {
@@ -957,6 +949,18 @@ function showLogin(nick) {
     savePlayer(nick, player);
     nickToCharacter.set(nick, player.name);
     characterToNick.set(player.name.toLowerCase(), nick);
+    setPlayerOnline(nick);
+    
+    const offlineMsgs = getOfflineMessages(nick);
+    if (offlineMsgs.length > 0) {
+      clearOfflineMessages(nick);
+      sendDirectNotice(nick, 'You have ' + offlineMsgs.length + ' pending message(s):');
+      offlineMsgs.forEach((msg, i) => {
+        sendDirectNotice(nick, (i + 1) + '. ' + msg.message);
+      });
+      sendDirectNotice(nick, '---');
+    }
+    
     showMainMenu(nick);
   } else {
     sendLines(nick, [
@@ -1283,6 +1287,7 @@ function handleCommand(nick, cmd, args) {
         case '?': showMainMenu(nick); break;
         case 'q': 
           sendNotice(nick, 'Goodbye! Type !lord to return.');
+          setPlayerOffline(nick);
           clearState(nick);
           break;
       }
@@ -1296,6 +1301,7 @@ function handleCommand(nick, cmd, args) {
         case 'r': showMainMenu(nick); break;
         case 'q':
           sendNotice(nick, 'Goodbye! Type !lord to return.');
+          setPlayerOffline(nick);
           clearState(nick);
           break;
         case '?': showForest(nick); break;
@@ -1619,6 +1625,7 @@ client.addListener('pm', (nick, text) => {
   }
   
   if (cmd.toLowerCase() === 'quit' || cmd.toLowerCase() === 'exit') {
+    setPlayerOffline(nick);
     clearState(nick);
     sendNotice(nick, 'Goodbye! Send a message to return.');
     return;
@@ -1634,7 +1641,37 @@ client.addListener('pm', (nick, text) => {
 
 client.addListener('error', (message) => {
   console.error('IRC Error:', message);
+  
+  if (message.command === 'err_nosuchnick') {
+    const targetNick = message.args && message.args[1];
+    if (targetNick && pendingMessages.has(targetNick.toLowerCase())) {
+      const msgs = pendingMessages.get(targetNick.toLowerCase());
+      pendingMessages.delete(targetNick.toLowerCase());
+      msgs.forEach(msg => {
+        console.log('[OFFLINE] Queuing message for ' + targetNick + ' (IRC offline)');
+        queueOfflineMessage(targetNick, msg);
+      });
+    }
+  }
 });
+
+const pendingMessages = new Map();
+
+function sendDirectNotice(nick, message) {
+  const lines = Array.isArray(message) ? message : message.split('\n');
+  const fullMessage = lines.join('\n');
+  
+  pendingMessages.set(nick.toLowerCase(), (pendingMessages.get(nick.toLowerCase()) || []).concat(fullMessage));
+  
+  lines.forEach(line => {
+    client.notice(nick, line);
+    client.say(nick, line);
+  });
+  
+  setTimeout(() => {
+    pendingMessages.delete(nick.toLowerCase());
+  }, 5000);
+}
 
 console.log('Starting LORD IRC Bot...');
 console.log('Server: ' + config.irc.server + ':' + config.irc.port);

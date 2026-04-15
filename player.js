@@ -93,3 +93,44 @@ export function getTopPlayers(limit = 10) {
     .sort((a, b) => b.level - a.level || b.xp - a.xp)
     .slice(0, limit);
 }
+
+const onlinePlayers = new Set();
+
+export function setPlayerOnline(nick) {
+  onlinePlayers.add(nick.toLowerCase());
+}
+
+export function setPlayerOffline(nick) {
+  onlinePlayers.delete(nick.toLowerCase());
+}
+
+export function isPlayerOnline(nick) {
+  return onlinePlayers.has(nick.toLowerCase());
+}
+
+export function queueOfflineMessage(nick, message) {
+  const player = loadPlayer(nick);
+  if (!player) return false;
+  
+  if (!player.offline_messages) {
+    player.offline_messages = [];
+  }
+  player.offline_messages.push({
+    message,
+    timestamp: Date.now()
+  });
+  return savePlayer(nick, player);
+}
+
+export function getOfflineMessages(nick) {
+  const player = loadPlayer(nick);
+  if (!player) return [];
+  return player.offline_messages || [];
+}
+
+export function clearOfflineMessages(nick) {
+  const player = loadPlayer(nick);
+  if (!player) return false;
+  player.offline_messages = [];
+  return savePlayer(nick, player);
+}

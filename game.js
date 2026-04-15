@@ -63,7 +63,17 @@ export function getPlayerStats(nick) {
   };
 }
 
+export function sanitizeName(name) {
+  if (!name) return '';
+  return name
+    .replace(/[\x00-\x1f\x7f]/g, '')
+    .replace(/\x03[0-9]{1,2}(,[0-9]{1,2})?/g, '')
+    .replace(/\x02|\x1f|\x16|\x0f/g, '')
+    .slice(0, 20);
+}
+
 export function createCharacter(nick, name, playerClass, sex) {
+  name = sanitizeName(name);
   console.log('createCharacter: nick=' + nick + ', name="' + name + '", nameLen=' + (name ? name.length : 'NULL') + ', class=' + playerClass + ', sex=' + sex);
   
   if (playerExists(nick)) {
