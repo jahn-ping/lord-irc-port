@@ -51,6 +51,21 @@ const FLOOD_DELAY = 1000;
 const messageQueue = new Map();
 const queueTimeouts = new Map();
 
+function getPlayerNick(characterName) {
+  const lowerName = characterName.toLowerCase();
+  if (characterToNick.has(lowerName)) {
+    return characterToNick.get(lowerName);
+  }
+  const allPlayers = getAllPlayers();
+  for (const p of allPlayers) {
+    if (p.name && p.name.toLowerCase() === lowerName) {
+      characterToNick.set(lowerName, p.nick);
+      return p.nick;
+    }
+  }
+  return null;
+}
+
 function getState(nick) {
   if (!userStates.has(nick)) {
     userStates.set(nick, {
@@ -126,6 +141,14 @@ function sendNotice(nick, message) {
     const lines = message.split('\n');
     lines.forEach(line => queueMessage(nick, line));
   }
+}
+
+function sendDirectNotice(nick, message) {
+  const lines = Array.isArray(message) ? message : message.split('\n');
+  lines.forEach(line => {
+    client.notice(nick, line);
+    client.say(nick, line);
+  });
 }
 
 function sendLines(nick, lines) {
@@ -787,9 +810,12 @@ function startPlayerFight(nick, targetIndex) {
   const userState = getState(nick);
   userState.currentMonster = fightMonster;
 
-  const targetNick = characterToNick.get(target.name.toLowerCase());
+  const attackerChar = loadPlayer(nick);
+  const targetNick = getPlayerNick(target.name);
   if (targetNick) {
-    sendNotice(targetNick, 'WARNING! ' + nick + ' is attacking you! Fight back by pressing S to enter slaughter and attack them!');
+    const warnMsg = 'WARNING! ' + (attackerChar?.name || nick) + ' is attacking you! Fight back by pressing S to enter slaughter and attack them!';
+    console.log('[SLAUGHTER] -> ' + targetNick + ': ' + warnMsg);
+    sendDirectNotice(targetNick, warnMsg);
   }
 
   const lines = [
@@ -841,10 +867,11 @@ function processPlayerAttack(nick) {
     }
     savePlayer(nick, player);
 
-    const targetPlayer = game.getPlayerByName(monster.name);
+    const loserNick = getPlayerNick(monster.name);
+    const targetPlayer = loserNick ? loadPlayer(loserNick) : null;
     if (targetPlayer) {
       targetPlayer.gold -= goldStolen;
-      savePlayer(monster.name, targetPlayer);
+      savePlayer(loserNick, targetPlayer);
     }
     
     lines.push(border());
@@ -852,6 +879,24 @@ function processPlayerAttack(nick) {
     lines.push('You steal ' + g(goldStolen) + ' gold!');
     lines.push(border());
     lines.push('');
+    
+    const winnerChar = loadPlayer(nick);
+    const loserChar = targetPlayer;
+    
+    console.log('[DEBUG WIN] monster.name=' + monster.name + ', loserNick=' + loserNick + ', loserChar=' + (loserChar ? loserChar.name : 'null'));
+    
+    if (loserNick && loserChar) {
+      const loserMsg = 'You have been defeated by ' + (winnerChar?.name || nick) + '! They stole ' + goldStolen + ' gold. You now have ' + loserChar.gold + ' gold left.';
+      console.log('[SLAUGHTER] -> ' + loserNick + ': ' + loserMsg);
+      sendDirectNotice(loserNick, loserMsg);
+    } else {
+      console.log('[SLAUGHTER] Failed to send loser notice: loserNick=' + loserNick + ', loserChar=' + (loserChar ? 'exists' : 'null'));
+    }
+    
+    const winnerNick = nick;
+    const winnerMsg = 'You defeated ' + monster.name + '! You stole ' + goldStolen + ' gold. You now have ' + winnerChar.gold + ' gold.';
+    console.log('[SLAUGHTER] -> ' + winnerNick + ': ' + winnerMsg);
+    sendDirectNotice(winnerNick, winnerMsg);
     
     userState.currentMonster = null;
     flushQueue(nick);
@@ -876,6 +921,16 @@ function processPlayerAttack(nick) {
     lines.push(border());
     lines.push('');
     
+    const victimChar = loadPlayer(nick);
+    const attackerNick = getPlayerNick(monster.name);
+    if (attackerNick) {
+      const winMsg = 'You defeated ' + (victimChar?.name || nick) + '! They are dead for 10 minutes!';
+      console.log('[SLAUGHTER] -> ' + attackerNick + ': ' + winMsg);
+      sendDirectNotice(attackerNick, winMsg);
+    } else {
+      console.log('[SLAUGHTER] Failed to send winner notice: attackerNick=' + attackerNick + ', monster.name=' + monster.name);
+    }
+    
     userState.currentMonster = null;
     flushQueue(nick);
     sendLines(nick, lines);
@@ -898,6 +953,8 @@ function processPlayerAttack(nick) {
 function showLogin(nick) {
   if (playerExists(nick)) {
     const player = loadPlayer(nick);
+    player.irc_nick = nick;
+    savePlayer(nick, player);
     nickToCharacter.set(nick, player.name);
     characterToNick.set(player.name.toLowerCase(), nick);
     showMainMenu(nick);
@@ -1193,6 +1250,9 @@ function handleCommand(nick, cmd, args) {
         
         if (result.success) {
           game.healPlayer(nick);
+          const player = loadPlayer(nick);
+          player.irc_nick = nick;
+          savePlayer(nick, player);
           nickToCharacter.set(nick, result.player.name);
           characterToNick.set(result.player.name.toLowerCase(), nick);
           showMainMenu(nick);

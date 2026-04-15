@@ -223,6 +223,7 @@ export const classNames = ['Warrior', 'Death Knight', 'Mystic', 'Thief'];
 
 export const defaultPlayer = {
   name: '',
+  irc_nick: '',
   class: 0,
   sex: 0,
   level: 1,

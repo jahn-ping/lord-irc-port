@@ -76,13 +76,20 @@ export function createCharacter(nick, name, playerClass, sex) {
     return { success: false, message: 'Name must be 1-20 characters!' };
   }
   
+  const allPlayers = getAllPlayers();
+  const nameExists = allPlayers.some(p => p.name.toLowerCase() === name.toLowerCase());
+  if (nameExists) {
+    console.log('createCharacter: Name already taken!');
+    return { success: false, message: 'That name is already taken! Choose another.' };
+  }
+  
   if (playerClass < 0 || playerClass > 3) {
     return { success: false, message: 'Invalid class!' };
   }
   
   const player = createPlayer(nick, name, playerClass, sex);
   if (player) {
-    return { success: true, message: 'Character created! Welcome to LORD.' };
+    return { success: true, message: 'Character created! Welcome to LORD.', player };
   }
   return { success: false, message: 'Error creating character!' };
 }
