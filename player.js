@@ -119,6 +119,7 @@ export function queueOfflineMessage(nick, message) {
     message,
     timestamp: Date.now()
   });
+  console.log('[QUEUE] Queued message for ' + nick + ', total: ' + player.offline_messages.length);
   return savePlayer(nick, player);
 }
 
@@ -132,5 +133,6 @@ export function clearOfflineMessages(nick) {
   const player = loadPlayer(nick);
   if (!player) return false;
   player.offline_messages = [];
+  console.log('[CLEAR] Cleared offline_messages for ' + nick);
   return savePlayer(nick, player);
 }

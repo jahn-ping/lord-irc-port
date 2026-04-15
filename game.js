@@ -447,12 +447,27 @@ export function leaveInn(nick) {
   return { success: true };
 }
 
+let cachedPlayerList = null;
+let playerListCacheTime = 0;
+const PLAYER_LIST_CACHE_MS = 5000;
+
 export function getPlayerList() {
+  const now = Date.now();
+  if (cachedPlayerList && (now - playerListCacheTime) < PLAYER_LIST_CACHE_MS) {
+    return cachedPlayerList;
+  }
+  
   const players = getAllPlayers();
-  return players
+  cachedPlayerList = players
     .filter(p => p.dead === 0)
     .sort((a, b) => b.level - a.level || b.xp - a.xp)
     .slice(0, 20);
+  playerListCacheTime = now;
+  return cachedPlayerList;
+}
+
+export function invalidatePlayerListCache() {
+  cachedPlayerList = null;
 }
 
 export function getPlayerByName(name) {

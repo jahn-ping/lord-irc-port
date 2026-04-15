@@ -50,6 +50,7 @@ const FLOOD_DELAY = 1000;
 
 const messageQueue = new Map();
 const queueTimeouts = new Map();
+const queueVersion = new Map();
 
 function getPlayerNick(characterName) {
   const lowerName = characterName.toLowerCase();
@@ -97,6 +98,7 @@ function sendImmediate(nick, message) {
 function queueMessage(nick, message) {
   if (!messageQueue.has(nick)) {
     messageQueue.set(nick, []);
+    queueVersion.set(nick, (queueVersion.get(nick) || 0) + 1);
   }
   const queue = messageQueue.get(nick);
   queue.push(message);
@@ -109,13 +111,18 @@ function queueMessage(nick, message) {
 
 function processQueue(nick) {
   queueTimeouts.delete(nick);
+  const version = queueVersion.get(nick);
   const queue = messageQueue.get(nick);
-  if (!queue || queue.length === 0) {
+  if (!queue || queue.length === 0 || queueVersion.get(nick) !== version) {
     messageQueue.delete(nick);
     return;
   }
   
   const message = queue.shift();
+  if (queueVersion.get(nick) !== version) {
+    return;
+  }
+  
   sendImmediate(nick, message);
   
   if (queue.length > 0) {
@@ -131,6 +138,11 @@ function flushQueue(nick) {
     clearTimeout(queueTimeouts.get(nick));
     queueTimeouts.delete(nick);
   }
+  const version = queueVersion.get(nick);
+  const queue = messageQueue.get(nick);
+  if (queue && queueVersion.get(nick) === version) {
+    queue.forEach(msg => client.say(nick, msg));
+  }
   messageQueue.delete(nick);
 }
 
@@ -143,7 +155,23 @@ function sendNotice(nick, message) {
   }
 }
 
+function clearMessageQueue(nick) {
+  if (queueTimeouts.has(nick)) {
+    clearTimeout(queueTimeouts.get(nick));
+    queueTimeouts.delete(nick);
+  }
+  if (messageQueue.has(nick)) {
+    queueVersion.set(nick, (queueVersion.get(nick) || 0) + 1);
+    messageQueue.delete(nick);
+  }
+}
+
 function sendLines(nick, lines) {
+  if (lines.length > 0) {
+    if (!queueTimeouts.has(nick)) {
+      clearMessageQueue(nick);
+    }
+  }
   lines.forEach(line => queueMessage(nick, line));
 }
 
@@ -162,11 +190,11 @@ function statLine(nick) {
   return 'HP: (' + stats.hp + ' of ' + stats.maxhp + ') Fights: ' + stats.fights + ' Gold: ' + game.formatNumber(stats.gold) + ' Gems: ' + stats.gems;
 }
 
-function showMainMenu(nick) {
+function buildMainMenuLines(nick) {
   const stats = game.getPlayerStats(nick);
-  if (!stats) return;
-
-  sendLines(nick, [
+  if (!stats) return [];
+  
+  return [
     '',
     r('  Legend of the Red Dragon - Town Square'),
     '  Use ? if stuck and q,r to stop msg',
@@ -186,7 +214,11 @@ function showMainMenu(nick) {
     '',
     statLine(nick),
     ''
-  ]);
+  ];
+}
+
+function showMainMenu(nick) {
+  sendLines(nick, buildMainMenuLines(nick));
   setState(nick, PLAYER_STATES.MAIN);
 }
 
@@ -716,32 +748,27 @@ function showSlaughter(nick) {
     p.dead === 0
   );
 
-  sendLines(nick, [
+  const lines = [
     '',
     '  Slaughter Other Players',
     border(),
     ''
-  ]);
+  ];
 
   if (otherPlayers.length === 0) {
-    sendLines(nick, [
-      '  No other players available.',
-      ''
-    ]);
+    lines.push('  No other players available.');
+    lines.push('');
   } else {
     otherPlayers.forEach((p, i) => {
-      sendLines(nick, [
-        '(' + g(i + 1) + ') ' + p.name + ' - Level ' + g(p.level) + ' ' + game.classNames[p.class],
-        '    HP: (' + g(p.hp) + ' of ' + g(p.maxhp) + ')',
-        ''
-      ]);
+      lines.push('(' + g(i + 1) + ') ' + p.name + ' - Lvl ' + g(p.level));
     });
+    lines.push('');
   }
 
-  sendLines(nick, [
-    '(R)eturn to town',
-    ''
-  ]);
+  lines.push('(R)eturn to town');
+  lines.push('');
+  
+  sendLines(nick, lines);
   setState(nick, PLAYER_STATES.SLAUGHTER);
 }
 
@@ -878,7 +905,7 @@ function processPlayerAttack(nick) {
     console.log('[DEBUG WIN] monster.name=' + monster.name + ', loserNick=' + loserNick + ', loserChar=' + (loserChar ? loserChar.name : 'null'));
     
     if (loserNick && loserChar) {
-      const loserMsg = 'You have been defeated by ' + (winnerChar?.name || nick) + '! They stole ' + goldStolen + ' gold. You now have ' + loserChar.gold + ' gold left.';
+      const loserMsg = 'SLAUGHTER RESULT: You were defeated by ' + (winnerChar?.name || nick) + '! They stole ' + goldStolen + ' gold. You now have ' + loserChar.gold + ' gold left.';
       console.log('[SLAUGHTER] -> ' + loserNick + ': ' + loserMsg);
       sendDirectNotice(loserNick, loserMsg);
     } else {
@@ -886,7 +913,7 @@ function processPlayerAttack(nick) {
     }
     
     const winnerNick = nick;
-    const winnerMsg = 'You defeated ' + monster.name + '! You stole ' + goldStolen + ' gold. You now have ' + winnerChar.gold + ' gold.';
+    const winnerMsg = 'SLAUGHTER RESULT: You defeated ' + monster.name + '! You stole ' + goldStolen + ' gold! You now have ' + winnerChar.gold + ' gold.';
     console.log('[SLAUGHTER] -> ' + winnerNick + ': ' + winnerMsg);
     sendDirectNotice(winnerNick, winnerMsg);
     
@@ -915,6 +942,7 @@ function processPlayerAttack(nick) {
     
     const victimChar = loadPlayer(nick);
     const attackerNick = getPlayerNick(monster.name);
+    
     if (attackerNick) {
       const winMsg = 'You defeated ' + (victimChar?.name || nick) + '! They are dead for 10 minutes!';
       console.log('[SLAUGHTER] -> ' + attackerNick + ': ' + winMsg);
@@ -926,6 +954,12 @@ function processPlayerAttack(nick) {
     userState.currentMonster = null;
     flushQueue(nick);
     sendLines(nick, lines);
+    
+    const goldLost = monster.gold;
+    const victimMsg = 'SLAUGHTER RESULT: You were defeated by ' + monster.name + '! You lost ' + goldLost + ' gold! You are dead for 10 minutes!';
+    console.log('[SLAUGHTER] -> ' + nick + ' (victim): ' + victimMsg);
+    sendDirectNotice(nick, victimMsg);
+    
     clearState(nick);
     return;
   }
@@ -954,14 +988,22 @@ function showLogin(nick) {
     const offlineMsgs = getOfflineMessages(nick);
     if (offlineMsgs.length > 0) {
       clearOfflineMessages(nick);
-      sendDirectNotice(nick, 'You have ' + offlineMsgs.length + ' pending message(s):');
+      const noticeLines = [
+        '',
+        '>>> You have ' + offlineMsgs.length + ' pending message(s)! <<<',
+        ''
+      ];
       offlineMsgs.forEach((msg, i) => {
-        sendDirectNotice(nick, (i + 1) + '. ' + msg.message);
+        noticeLines.push((i + 1) + '. ' + msg.message);
       });
-      sendDirectNotice(nick, '---');
+      noticeLines.push('---');
+      noticeLines.push('');
+      
+      const mainMenuLines = buildMainMenuLines(nick);
+      sendLines(nick, [...noticeLines, ...mainMenuLines]);
+    } else {
+      showMainMenu(nick);
     }
-    
-    showMainMenu(nick);
   } else {
     sendLines(nick, [
       '',
@@ -1187,6 +1229,7 @@ function processRun(nick) {
 }
 
 function handleCommand(nick, cmd, args) {
+  clearMessageQueue(nick);
   const deadCheck = game.isPlayerDead(nick);
   if (deadCheck && deadCheck.dead) {
     const minutesLeft = Math.ceil(deadCheck.remaining / 60000);
@@ -1269,7 +1312,6 @@ function handleCommand(nick, cmd, args) {
       break;
 
     case PLAYER_STATES.MAIN:
-      flushQueue(nick);
       switch (cmdLower) {
         case 'f': showForest(nick); break;
         case 's': showSlaughter(nick); break;
@@ -1294,7 +1336,6 @@ function handleCommand(nick, cmd, args) {
       break;
 
     case PLAYER_STATES.FOREST:
-      flushQueue(nick);
       switch (cmdLower) {
         case 'l': startFight(nick); break;
         case 'h': showHealer(nick); break;
