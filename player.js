@@ -21,6 +21,36 @@ export function playerExists(nick) {
   return fs.existsSync(getPlayerPath(nick));
 }
 
+export function findPlayerByIrcNick(ircNick) {
+  const lowerNick = ircNick.toLowerCase();
+  console.log('[findPlayerByIrcNick] searching for: ' + lowerNick);
+  
+  if (playerExists(lowerNick)) {
+    console.log('[findPlayerByIrcNick] found by filename');
+    return { player: loadPlayer(lowerNick), nick: lowerNick };
+  }
+  
+  const allPlayers = getAllPlayers();
+  console.log('[findPlayerByIrcNick] checking ' + allPlayers.length + ' players');
+  const found = allPlayers.find(p => 
+    (p.irc_nick && p.irc_nick.toLowerCase() === lowerNick) ||
+    (p.name && p.name.toLowerCase() === lowerNick)
+  );
+  
+  if (found) {
+    console.log('[findPlayerByIrcNick] found by irc_nick/name: ' + found.name);
+    return { player: loadPlayer(found.nick), nick: found.nick };
+  }
+  
+  console.log('[findPlayerByIrcNick] not found');
+  return null;
+}
+
+export function findPlayerByName(name) {
+  const allPlayers = getAllPlayers();
+  return allPlayers.find(p => p.name && p.name.toLowerCase() === name.toLowerCase());
+}
+
 export function loadPlayer(nick) {
   const filepath = getPlayerPath(nick);
   console.log('loadPlayer: nick=' + nick + ', filepath=' + filepath);

@@ -37,7 +37,19 @@ function getXpNeeded(level) {
 function getRandomMonster(playerLevel) {
   const maxIndex = Math.min(monsters.length, playerLevel * 10);
   const index = random(0, maxIndex - 1);
-  return { ...monsters[index], index };
+  const baseMonster = { ...monsters[index], index };
+  
+  const levelMultiplier = 1 + (playerLevel - 1) * 0.15;
+  const scaleFactor = Math.max(1, levelMultiplier);
+  
+  return {
+    ...baseMonster,
+    hp: Math.floor(baseMonster.hp * scaleFactor),
+    str: Math.floor(baseMonster.str * scaleFactor),
+    gold: Math.floor(baseMonster.gold * scaleFactor),
+    xp: Math.floor(baseMonster.xp * scaleFactor),
+    maxhp: Math.floor(baseMonster.hp * scaleFactor)
+  };
 }
 
 function formatNumber(num) {
@@ -159,6 +171,7 @@ export function fightMonster(nick) {
       name: monster.name,
       weapon: monster.weapon,
       hp: monster.hp,
+      maxhp: monster.maxhp,
       str: monster.str,
       gold: monster.gold,
       xp: monster.xp
@@ -168,7 +181,7 @@ export function fightMonster(nick) {
   };
 }
 
-export function attackMonster(nick, currentMonsterHp) {
+export function attackMonster(nick, currentMonsterHp, monsterStr, monsterMaxHp) {
   const player = loadPlayer(nick);
   if (!player) return { error: 'Player not found!' };
   
@@ -178,7 +191,7 @@ export function attackMonster(nick, currentMonsterHp) {
   
   const isPowerMove = random(1, 100) >= 90;
   if (isPowerMove) {
-    const multiplier = randomFloat(1.5, 5.5);
+    const multiplier = randomFloat(1.5, 3.0);
     damage = Math.floor(damage * multiplier);
   }
   
@@ -194,7 +207,7 @@ export function attackMonster(nick, currentMonsterHp) {
   }
   
   const armorDefense = getArmorDefense(player.armor_num);
-  let monsterDamage = random(1, player.str) - armorDefense;
+  let monsterDamage = random(1, monsterStr) - armorDefense;
   if (monsterDamage < 0) monsterDamage = 0;
   
   const newPlayerHp = player.hp - monsterDamage;

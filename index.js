@@ -1,7 +1,7 @@
 import irc from 'irc';
 import { config } from './config.js';
 import * as game from './game.js';
-import { playerExists, loadPlayer, savePlayer, getAllPlayers, setPlayerOnline, setPlayerOffline, isPlayerOnline, queueOfflineMessage, getOfflineMessages, clearOfflineMessages } from './player.js';
+import { playerExists, loadPlayer, savePlayer, getAllPlayers, setPlayerOnline, setPlayerOffline, isPlayerOnline, queueOfflineMessage, getOfflineMessages, clearOfflineMessages, findPlayerByIrcNick } from './player.js';
 
 const PLAYER_STATES = {
   NONE: 'none',
@@ -197,7 +197,7 @@ function buildMainMenuLines(nick) {
   return [
     '',
     r('  Legend of the Red Dragon - Town Square'),
-    '  Use ? if stuck and q,r to stop msg',
+    '  Use ? or r if you\'re not seeing messages and q,r to stop msg',
     border(),
     '  The streets are crowded, it is difficult to',
     '  push your way through the mob....',
@@ -977,17 +977,35 @@ function processPlayerAttack(nick) {
 }
 
 function showLogin(nick) {
+  console.log('[showLogin] nick=' + nick);
+  let player = null;
+  let playerNick = nick;
+  
   if (playerExists(nick)) {
-    const player = loadPlayer(nick);
+    console.log('[showLogin] playerExists=true');
+    player = loadPlayer(nick);
+    playerNick = nick;
+  } else {
+    console.log('[showLogin] playerExists=false, calling findPlayerByIrcNick');
+    const found = findPlayerByIrcNick(nick);
+    console.log('[showLogin] findPlayerByIrcNick result=' + JSON.stringify(found));
+    if (found) {
+      player = found.player;
+      playerNick = found.nick;
+    }
+  }
+  
+  if (player) {
+    console.log('[showLogin] player found: ' + player.name);
     player.irc_nick = nick;
-    savePlayer(nick, player);
+    savePlayer(playerNick, player);
     nickToCharacter.set(nick, player.name);
     characterToNick.set(player.name.toLowerCase(), nick);
     setPlayerOnline(nick);
     
-    const offlineMsgs = getOfflineMessages(nick);
+    const offlineMsgs = getOfflineMessages(playerNick);
     if (offlineMsgs.length > 0) {
-      clearOfflineMessages(nick);
+      clearOfflineMessages(playerNick);
       const noticeLines = [
         '',
         '>>> You have ' + offlineMsgs.length + ' pending message(s)! <<<',
@@ -999,12 +1017,13 @@ function showLogin(nick) {
       noticeLines.push('---');
       noticeLines.push('');
       
-      const mainMenuLines = buildMainMenuLines(nick);
+      const mainMenuLines = buildMainMenuLines(playerNick);
       sendLines(nick, [...noticeLines, ...mainMenuLines]);
     } else {
       showMainMenu(nick);
     }
   } else {
+    console.log('[showLogin] no player found, showing welcome');
     sendLines(nick, [
       '',
       '  Welcome to Legend of the Red Dragon!',
@@ -1117,7 +1136,7 @@ function processAttack(nick) {
     return;
   }
   
-  const result = game.attackMonster(nick, monster.hp);
+  const result = game.attackMonster(nick, monster.hp, monster.str, monster.maxhp);
   
   if (result.error) {
     sendNotice(nick, result.error);
@@ -1180,15 +1199,16 @@ function processAttack(nick) {
     clearState(nick);
     return;
   } else {
+    monster.hp = result.monsterHp;
+    
     lines.push(monster.name + ' hits you for ' + g(result.monsterDamage) + ' damage!');
     lines.push('');
     lines.push(statLine(nick));
-    lines.push('HP: (' + g(result.playerHp) + ' of ' + g(game.getPlayerStats(nick).maxhp) + ') - Monster HP: (' + g(result.monsterHp) + ' of ' + g(monster.hp + result.damage) + ')');
+    lines.push('HP: (' + g(result.playerHp) + ' of ' + g(game.getPlayerStats(nick).maxhp) + ') - Monster HP: (' + g(result.monsterHp) + ' of ' + g(monster.maxhp) + ')');
     lines.push('');
     lines.push(w('(A)ttack (S)tats (R)un'));
     lines.push('');
     
-    monster.hp = result.monsterHp;
     setState(nick, PLAYER_STATES.FIGHT);
     flushQueue(nick);
     sendLines(nick, lines);
@@ -1252,6 +1272,8 @@ function handleCommand(nick, cmd, args) {
     case PLAYER_STATES.LOGIN:
       if (cmdUpper === 'N' || cmdLower === 'n') {
         showCreateMenu(nick);
+      } else if (cmd.trim().length > 0) {
+        sendNotice(nick, 'Press N to create a new character.');
       }
       break;
 
@@ -1281,6 +1303,8 @@ function handleCommand(nick, cmd, args) {
       if (classNum >= 0) {
         userState.temp.class = classNum;
         showSexSelect(nick);
+      } else {
+        sendNotice(nick, 'Invalid choice! Press K (Warrior), D (Mage), or L (Thief).');
       }
       break;
 
@@ -1288,6 +1312,11 @@ function handleCommand(nick, cmd, args) {
       let sex = -1;
       if (cmdUpper === 'M') sex = 0;
       else if (cmdUpper === 'F') sex = 1;
+      
+      if (sex < 0) {
+        sendNotice(nick, 'Invalid choice! Press M (Male) or F (Female).');
+        return;
+      }
       
       console.log('CREATE_SEX: name=' + userState.temp.name + ', class=' + userState.temp.class + ', sex=' + sex);
       
@@ -1313,21 +1342,21 @@ function handleCommand(nick, cmd, args) {
 
     case PLAYER_STATES.MAIN:
       switch (cmdLower) {
-        case 'f': showForest(nick); break;
-        case 's': showSlaughter(nick); break;
-        case 'k': showWeapons(nick); break;
-        case 'a': showArmor(nick); break;
-        case 'h': showHealer(nick); break;
-        case 'v': showStats(nick); break;
-        case 'i': showInn(nick); break;
-        case 't': showTraining(nick); break;
-        case 'y': showBank(nick); break;
-        case 'l': showPeople(nick); break;
-        case 'd': showNews(nick); break;
-        case 'p': showPeople(nick); break;
-        case 'c': showMainMenu(nick); break;
+        case 'f': case 'F': showForest(nick); break;
+        case 's': case 'S': showSlaughter(nick); break;
+        case 'k': case 'K': showWeapons(nick); break;
+        case 'a': case 'A': showArmor(nick); break;
+        case 'h': case 'H': showHealer(nick); break;
+        case 'v': case 'V': showStats(nick); break;
+        case 'i': case 'I': showInn(nick); break;
+        case 't': case 'T': showTraining(nick); break;
+        case 'y': case 'Y': showBank(nick); break;
+        case 'l': case 'L': showPeople(nick); break;
+        case 'd': case 'D': showNews(nick); break;
+        case 'p': case 'P': showPeople(nick); break;
+        case 'c': case 'C': showMainMenu(nick); break;
         case '?': showMainMenu(nick); break;
-        case 'q': 
+        case 'q': case 'Q':
           sendNotice(nick, 'Goodbye! Type !lord to return.');
           setPlayerOffline(nick);
           clearState(nick);
@@ -1337,10 +1366,10 @@ function handleCommand(nick, cmd, args) {
 
     case PLAYER_STATES.FOREST:
       switch (cmdLower) {
-        case 'l': startFight(nick); break;
-        case 'h': showHealer(nick); break;
-        case 'r': showMainMenu(nick); break;
-        case 'q':
+        case 'l': case 'L': startFight(nick); break;
+        case 'h': case 'H': showHealer(nick); break;
+        case 'r': case 'R': showMainMenu(nick); break;
+        case 'q': case 'Q':
           sendNotice(nick, 'Goodbye! Type !lord to return.');
           setPlayerOffline(nick);
           clearState(nick);
@@ -1352,14 +1381,14 @@ function handleCommand(nick, cmd, args) {
     case PLAYER_STATES.FIGHT:
       flushQueue(nick);
       switch (cmdLower) {
-        case 'a':
+        case 'a': case 'A':
         case '':
           processAttack(nick);
           break;
-        case 'r':
+        case 'r': case 'R':
           processRun(nick);
           break;
-        case 'q':
+        case 'q': case 'Q':
           userState.currentMonster = null;
           showMainMenu(nick);
           break;
@@ -1594,7 +1623,7 @@ function handleCommand(nick, cmd, args) {
 
     case PLAYER_STATES.SLAUGHTER:
       flushQueue(nick);
-      if (cmdLower === 'r') {
+      if (cmdLower === 'r' || cmdLower === 'R') {
         showMainMenu(nick);
         break;
       }
@@ -1607,11 +1636,11 @@ function handleCommand(nick, cmd, args) {
 
     case PLAYER_STATES.FIGHT_PLAYER:
       flushQueue(nick);
-      if (cmdLower === 'a' || cmdLower === '') {
+      if (cmdLower === 'a' || cmdLower === 'A' || cmdLower === '') {
         processPlayerAttack(nick);
         break;
       }
-      if (cmdLower === 'r') {
+      if (cmdLower === 'r' || cmdLower === 'R') {
         userState.currentMonster = null;
         showSlaughter(nick);
         break;
