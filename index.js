@@ -52,8 +52,15 @@ const userStates = new Map();
 const nickToCharacter = new Map();
 const characterToNick = new Map();
 
-// No IRC colors for now
-const C = {};
+// ANSI colors for console
+const C = {
+  reset: '\x1b[0m',
+  blue: '\x1b[34m',
+  green: '\x1b[32m',
+  red: '\x1b[31m',
+  yellow: '\x1b[33m',
+  cyan: '\x1b[36m'
+};
 
 function g(val) { return '' + val; }
 function r(val) { return '' + val; }
@@ -3017,13 +3024,11 @@ client.addListener('registered', () => {
     const allPlayers = getAllPlayers();
     let bonusCount = 0;
     allPlayers.forEach(player => {
-      if (player.irc_nick) {
-        const p = loadPlayer(player.irc_nick);
-        if (p) {
-          p.fights = Math.min(p.fights + 1, config.maxFightsPerDay);
-          savePlayer(player.irc_nick, p);
-          bonusCount++;
-        }
+      const p = loadPlayer(player.nick);
+      if (p && p.fights < config.maxFightsPerDay) {
+        p.fights = Math.min(p.fights + 1, config.maxFightsPerDay);
+        savePlayer(player.nick, p);
+        bonusCount++;
       }
     });
     console.log('[MINUTE] Granted +1 forest fight to ' + bonusCount + ' players');
@@ -3039,12 +3044,12 @@ client.addListener('registered', () => {
 });
 
 client.addListener('pm', (nick, text) => {
-  console.log('PM from ' + nick + ': ' + JSON.stringify(text));
+  console.log(C.blue + 'PM from ' + nick + ': ' + text + C.reset);
   
   const parts = text.trim().split(/\s+/);
   const cmd = parts[0];
   const args = parts.slice(1);
-  console.log('PM parsed: cmd="' + cmd + '", args=' + JSON.stringify(args));
+  console.log(C.blue + 'PM parsed: cmd="' + cmd + '", args=' + JSON.stringify(args) + C.reset);
   
   if (cmd.toLowerCase() === 'help') {
     showLogin(nick);
