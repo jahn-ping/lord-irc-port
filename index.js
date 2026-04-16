@@ -43,7 +43,9 @@ const PLAYER_STATES = {
   FOREST_HUT: 'forest_hut',
   FOREST_HUT_KNOCK: 'forest_hut_knock',
   FOREST_HUT_GUESS: 'forest_hut_guess',
-  SKILL_MENU: 'skill_menu'
+  SKILL_MENU: 'skill_menu',
+  CONFIRM_LEAVE_DWARF: 'confirm_leave_dwarf',
+  CONFIRM_LEAVE_HUT: 'confirm_leave_hut'
 };
 
 const userStates = new Map();
@@ -204,12 +206,10 @@ function clearMessageQueue(nick) {
 }
 
 function sendLines(nick, lines) {
-  const userState = getState(nick);
   if (lines.length > 0) {
     if (!queueTimeouts.has(nick)) {
       clearMessageQueue(nick);
     }
-    userState.displayMode = true;
   }
   lines.forEach(line => queueMessage(nick, line));
 }
@@ -1246,6 +1246,7 @@ function startFight(nick) {
         ];
         const userState = getState(nick);
         userState.temp = { nextState: 'dwarf' };
+        userState.displayMode = true;
         sendLines(nick, lines);
         setState(nick, PLAYER_STATES.FOREST_EVENT);
         return;
@@ -1265,6 +1266,7 @@ function startFight(nick) {
         ];
         const userState = getState(nick);
         userState.temp = { nextState: 'hut' };
+        userState.displayMode = true;
         sendLines(nick, lines);
         setState(nick, PLAYER_STATES.FOREST_EVENT);
         return;
@@ -1368,47 +1370,22 @@ function processAttack(nick) {
   if (result.victory) {
     const reward = game.winMonsterFight(nick, monster);
     
-    lines.push(border());
-    lines.push('You have killed ' + monster.name + '!');
-    lines.push('');
-    lines.push('You receive ' + g(game.formatNumber(reward.gold)) + ' gold and ' + g(reward.xp) + ' experience!');
-    
-    if (reward.gem) {
-      lines.push('');
-      lines.push('  You found a ' + r('GEM') + '!');
-    }
+    const victoryMsg = 'Killed ' + monster.name + '! Got ' + g(game.formatNumber(reward.gold)) + ' gold + ' + g(reward.xp) + ' XP' + (reward.gem ? ' +GEM' : '');
+    sendImmediate(nick, victoryMsg);
     
     if (reward.levelUp && reward.levelUp.levelUp) {
-      lines.push('');
-      lines.push(r('********** LEVEL UP! **********'));
-      lines.push('You are now level ' + g(reward.levelUp.newLevel) + '!');
-      lines.push('HP: ' + g(reward.levelUp.gains.hp) + '  Str: ' + g(reward.levelUp.gains.str) + '  Def: ' + g(reward.levelUp.gains.def));
-      lines.push(r('*******************************'));
+      sendImmediate(nick, r('*** LEVEL UP! Now LVL' + reward.levelUp.newLevel + ' - HP: ' + reward.levelUp.gains.hp + ' Str: ' + reward.levelUp.gains.str + ' Def: ' + reward.levelUp.gains.def + ' ***'));
     }
     
-    lines.push(border());
-    lines.push('');
-    
     userState.currentMonster = null;
-    flushQueue(nick);
-    sendLines(nick, lines);
     showForest(nick);
     return;
   } else if (result.defeat) {
     const loss = game.loseMonsterFight(nick, monster.gold, monster.name);
     
-    lines.push(border());
-    lines.push('You have been killed by ' + monster.name + '!');
-    lines.push('');
-    lines.push('You lost ' + g(game.formatNumber(loss.lostGold)) + ' gold on hand...');
-    lines.push('');
-    lines.push('You are dead for 10 minutes!');
-    lines.push(border());
-    lines.push('');
+    sendImmediate(nick, 'DEAD! Killed by ' + monster.name + ' - Lost ' + g(game.formatNumber(loss.lostGold)) + ' gold - Dead for 10 minutes!');
     
     userState.currentMonster = null;
-    flushQueue(nick);
-    sendLines(nick, lines);
     clearState(nick);
     return;
   } else {
@@ -2181,8 +2158,8 @@ function handleCommand(nick, cmd, args) {
           showForestHutBang(nick);
           break;
         case 'l':
-          sendNotice(nick, 'You leave well enough alone.');
-          showForest(nick);
+          sendNotice(nick, 'Leave the hut and return to forest? (Y/N)');
+          setState(nick, PLAYER_STATES.CONFIRM_LEAVE_HUT);
           break;
         default:
           sendNotice(nick, 'Forest Hut - K (Knock), B (Bang), L (Leave)');
@@ -2255,6 +2232,7 @@ function handleCommand(nick, cmd, args) {
             const us = getState(nick);
             const nextState = us.temp.nextState;
             us.temp = {};
+            us.displayMode = false;
             if (nextState === 'dwarf') {
               showDwarfGames(nick);
             } else if (nextState === 'hut') {
@@ -2719,23 +2697,64 @@ function handleCommand(nick, cmd, args) {
       break;
 
     case PLAYER_STATES.DWARF_GAMES:
-      if (cmdLower === 'h') {
+      {
         const userState = getState(nick);
-        userState.dwarfGame.playerCards.push(userState.dwarfGame.deck.pop());
-        userState.dwarfGame.playerScore = calculateScore(userState.dwarfGame.playerCards);
+        const gameState = userState.dwarfGame;
         
-        if (userState.dwarfGame.playerScore > 21) {
+        if (cmdLower === 'h') {
+          if (gameState.gameOver) {
+            sendNotice(nick, 'Game over. (P)lay Again or (R)eturn to Forest.');
+            return;
+          }
+          gameState.playerCards.push(gameState.deck.pop());
+          gameState.playerScore = calculateScore(gameState.playerCards);
+          
+          if (gameState.playerScore > 21) {
+            endDwarfRound(nick);
+          } else {
+            showDwarfGameState(nick);
+          }
+        } else if (cmdLower === 's') {
+          if (gameState.gameOver) {
+            sendNotice(nick, 'Game over. (P)lay Again or (R)eturn to Forest.');
+            return;
+          }
           endDwarfRound(nick);
+        } else if (cmdLower === 'p' || cmdLower === 'P') {
+          if (gameState.gameOver) {
+            showDwarfGames(nick);
+          } else {
+            sendNotice(nick, 'Dwarf Blackjack - H (Hit), S (Stay), R (Return)');
+          }
+        } else if (cmdLower === 'r') {
+          sendNotice(nick, 'Leave the dwarf games and return to forest? (Y/N)');
+          setState(nick, PLAYER_STATES.CONFIRM_LEAVE_DWARF);
         } else {
-          showDwarfGameState(nick);
+          sendNotice(nick, 'Dwarf Blackjack - H (Hit), S (Stay), P (Play Again), R (Return)');
         }
-      } else if (cmdLower === 's') {
-        endDwarfRound(nick);
-      } else if (cmdLower === 'r') {
+      }
+      break;
+
+    case PLAYER_STATES.CONFIRM_LEAVE_DWARF:
+      if (cmdLower === 'y' || cmdLower === 'Y') {
+        const userState = getState(nick);
         userState.currentMonster = null;
         showForest(nick);
+      } else if (cmdLower === 'n' || cmdLower === 'N') {
+        showDwarfGames(nick);
       } else {
-        sendNotice(nick, 'Dwarf Blackjack - H (Hit), S (Stay), R (Return)');
+        sendNotice(nick, 'Leave the dwarf games and return to forest? (Y/N)');
+      }
+      break;
+
+    case PLAYER_STATES.CONFIRM_LEAVE_HUT:
+      if (cmdLower === 'y' || cmdLower === 'Y') {
+        sendNotice(nick, 'You leave well enough alone.');
+        showForest(nick);
+      } else if (cmdLower === 'n' || cmdLower === 'N') {
+        showForestHut(nick);
+      } else {
+        sendNotice(nick, 'Leave the hut and return to forest? (Y/N)');
       }
       break;
   }
