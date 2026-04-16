@@ -2468,10 +2468,10 @@ function handleCommand(nick, cmd, args) {
       break;
 
     case PLAYER_STATES.FIGHT:
-      flushQueue(nick);
       switch (cmdLower) {
         case 'a': case 'A':
         case '':
+          flushQueue(nick);
           processAttack(nick);
           break;
         case 'd': case 'D':
@@ -2482,6 +2482,7 @@ function handleCommand(nick, cmd, args) {
             if (p && ((p.class === 0 && cmdLower === 'd') || 
                        (p.class === 1 && cmdLower === 'm') || 
                        (p.class === 2 && cmdLower === 't'))) {
+              flushQueue(nick);
               showSkillMenu(nick);
             } else {
               sendNotice(nick, 'Forest Fight - A,R,Q');
@@ -2489,9 +2490,11 @@ function handleCommand(nick, cmd, args) {
           }
           break;
         case 'r': case 'R':
+          flushQueue(nick);
           processRun(nick);
           break;
         case 'q': case 'Q':
+          flushQueue(nick);
           userState.currentMonster = null;
           showMainMenu(nick);
           break;
@@ -2866,8 +2869,8 @@ function handleCommand(nick, cmd, args) {
       break;
 
     case PLAYER_STATES.FIGHT_MASTER:
-      flushQueue(nick);
       if (cmdLower === 'a' || cmdLower === '') {
+        flushQueue(nick);
         processMasterAttack(nick);
         break;
       }
@@ -2876,6 +2879,7 @@ function handleCommand(nick, cmd, args) {
         if (p && ((p.class === 0 && cmdLower === 'd') || 
                    (p.class === 1 && cmdLower === 'm') || 
                    (p.class === 2 && cmdLower === 't'))) {
+          flushQueue(nick);
           showSkillMenu(nick);
         } else {
           sendNotice(nick, 'Fight Master - A,R');
@@ -2883,6 +2887,7 @@ function handleCommand(nick, cmd, args) {
         break;
       }
       if (cmdLower === 'r') {
+        flushQueue(nick);
         userState.currentMonster = null;
         showTraining(nick);
         break;
@@ -2907,12 +2912,13 @@ function handleCommand(nick, cmd, args) {
       break;
 
     case PLAYER_STATES.FIGHT_PLAYER:
-      flushQueue(nick);
       if (cmdLower === 'a' || cmdLower === 'A' || cmdLower === '') {
+        flushQueue(nick);
         processPlayerAttack(nick);
         break;
       }
       if (cmdLower === 'r' || cmdLower === 'R') {
+        flushQueue(nick);
         userState.currentMonster = null;
         showSlaughter(nick);
         break;
@@ -2923,6 +2929,7 @@ function handleCommand(nick, cmd, args) {
           if (p && ((p.class === 0 && cmdLower === 'd') || 
                      (p.class === 1 && cmdLower === 'm') || 
                      (p.class === 2 && cmdLower === 't'))) {
+            flushQueue(nick);
             showSkillMenu(nick);
           } else {
             sendNotice(nick, 'Player Fight - A,R');
