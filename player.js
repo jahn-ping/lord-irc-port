@@ -54,14 +54,11 @@ export function findPlayerByName(name) {
 
 export function loadPlayer(nick) {
   const filepath = getPlayerPath(nick);
-  console.log('loadPlayer: nick=' + nick + ', filepath=' + filepath);
-  console.log('loadPlayer: exists=' + fs.existsSync(filepath));
   if (!fs.existsSync(filepath)) {
     return null;
   }
   try {
     const data = fs.readFileSync(filepath, 'utf-8');
-    console.log('loadPlayer: data length=' + data.length);
     const player = JSON.parse(data);
     
     let fixed = false;
