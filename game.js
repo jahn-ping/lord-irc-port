@@ -53,12 +53,12 @@ function getRandomMonster(playerLevel) {
 }
 
 function formatNumber(num) {
+  if (num == null) return '0';
   return num.toLocaleString();
 }
 
 export function getPlayerStats(nick) {
   const player = loadPlayer(nick);
-  console.log('getPlayerStats: nick=' + nick + ', player=' + JSON.stringify(player));
   if (!player) return null;
   
   const weapon = weapons[player.weapon_num - 1];

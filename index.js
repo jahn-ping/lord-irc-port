@@ -233,7 +233,7 @@ function border() {
 function statLine(nick) {
   const stats = game.getPlayerStats(nick);
   if (!stats) return 'NO STATS!';
-  return stats.name + ' LVL' + stats.level + ' HP: [' + stats.hp + '/' + stats.maxhp + '] Gold: [' + game.formatNumber(stats.gold) + '] Gems: [' + stats.gems + '] Fights Left: [' + stats.fights + '] XP: [' + game.formatNumber(stats.xp) + '/' + game.formatNumber(stats.nextXp) + ']';
+  return stats.name + ' LVL' + stats.level + ' HP: [' + stats.hp + '/' + stats.maxhp + '] Gold: [' + game.formatNumber(stats.gold || 0) + '] Gems: [' + (stats.gems || 0) + '] Fights Left: [' + (stats.fights || 0) + '] XP: [' + game.formatNumber(stats.xp || 0) + '/' + game.formatNumber(stats.nextXp || 0) + ']';
 }
 
 function buildMainMenuLines(nick) {
@@ -3075,8 +3075,12 @@ client.addListener('registered', () => {
   }, msUntilNextMinute);
 });
 
+client.addListener('message', (from, to, text) => {
+  console.log(C.yellow + '[MSG] ' + from + ' -> ' + to + ': ' + text + C.reset);
+});
+
 client.addListener('pm', (nick, text) => {
-  console.log(C.blue + 'PM from ' + nick + ': ' + text + C.reset);
+  console.log(C.cyan + '[IRC PM] from ' + nick + ': ' + JSON.stringify(text) + C.reset);
   
   const parts = text.trim().split(/\s+/);
   const cmd = parts[0];
