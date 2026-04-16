@@ -684,6 +684,9 @@ function startMasterFight(nick) {
   const stats = game.getPlayerStats(nick);
   if (!stats) return;
 
+  const player = loadPlayer(nick);
+  if (!player) return;
+
   const masterIndex = Math.min(stats.seen_master, game.masters.length - 1);
   const currentMaster = game.masters[masterIndex];
 
@@ -715,6 +718,11 @@ function startMasterFight(nick) {
   lines.push(statLine(nick));
   const skillText = getSkillMenuText(player);
   lines.push(w('(A)ttack ') + skillText + w('(R)un'));
+  lines.push('');
+  const skillKeys = { 0: 'D', 1: 'M', 2: 'T' };
+  const hasSkill = player.skill_charges_max > 0 && player.skill_charges_active > 0;
+  const helpKeys = hasSkill ? '(A,' + skillKeys[player.class] + ',R) (? for menu)' : '(A,R) (? for menu)';
+  lines.push(r('Master Fight') + w('  ' + helpKeys));
   lines.push('');
 
   sendLines(nick, lines);
@@ -936,8 +944,7 @@ function startPlayerFight(nick, targetIndex) {
     return;
   }
 
-  const targetPlayer = game.getPlayerByName(target.name);
-  const targetWeapon = targetPlayer ? (game.weapons[targetPlayer.weapon_num - 1]?.name || 'Fists') : 'Fists';
+  const targetWeapon = game.weapons[target.weapon_num - 1]?.name || 'Fists';
    
   const fightMonster = {
     name: target.name,
@@ -964,7 +971,7 @@ function startPlayerFight(nick, targetIndex) {
   }
 
   const refreshedPlayer = checkAndRefreshSkills(nick);
-  
+   
   const lines = [
     '',
     r('**PLAYER FIGHT**'),
@@ -979,6 +986,11 @@ function startPlayerFight(nick, targetIndex) {
   lines.push(statLine(nick));
   const skillText = getSkillMenuText(refreshedPlayer);
   lines.push(w('(A)ttack ') + skillText + w('(R)un'));
+  lines.push('');
+  const skillKeys = { 0: 'D', 1: 'M', 2: 'T' };
+  const hasSkill = refreshedPlayer.skill_charges_max > 0 && refreshedPlayer.skill_charges_active > 0;
+  const helpKeys = hasSkill ? '(A,' + skillKeys[refreshedPlayer.class] + ',R) (? for menu)' : '(A,R) (? for menu)';
+  lines.push(r('Player Fight') + w('  ' + helpKeys));
   lines.push('');
 
   sendLines(nick, lines);
@@ -1092,12 +1104,19 @@ function processPlayerAttack(nick) {
 
   game.setPlayerHp(nick, newPlayerHp);
   
+  const player = loadPlayer(nick);
   lines.push('');
   lines.push('HP: (' + g(newPlayerHp) + ' of ' + g(stats.maxhp) + ') - ' + monster.name + ' HP: (' + g(monster.hp) + ' of ' + g(monster.maxhp) + ')');
   lines.push('');
-  lines.push(w('(A)ttack ') + getSkillMenuText(stats) + w('(R)un'));
+  const skillText = getSkillMenuText(player);
+  lines.push(w('(A)ttack ') + skillText + w('(R)un'));
   lines.push('');
-
+  const skillKeys = { 0: 'D', 1: 'M', 2: 'T' };
+  const hasSkill = player.skill_charges_max > 0 && player.skill_charges_active > 0;
+  const helpKeys = hasSkill ? '(A,' + skillKeys[player.class] + ',R) (? for menu)' : '(A,R) (? for menu)';
+  lines.push(r('Player Fight') + w('  ' + helpKeys));
+  lines.push('');
+ 
   flushQueue(nick);
   sendLines(nick, lines);
 }
@@ -1784,7 +1803,7 @@ function showMasterFightState(nick) {
 function getSkillMenuText(player) {
   if (!player.skill_charges_max || player.skill_charges_active <= 0) return '';
   
-  const chargeStatus = player.skill_charges_active < player.skill_charges_max ? ' (' + player.skill_charges_active + '/' + player.skill_charges_max + ')' : '';
+  const chargeStatus = ' (' + player.skill_charges_active + '/' + player.skill_charges_max + ')';
   
   switch (player.class) {
     case 0: return w('(D)estroy ' + chargeStatus + ' '); // Death Knight
