@@ -3061,7 +3061,9 @@ client.addListener('registered', () => {
         }
       }
     });
-    console.log('[MINUTE] ' + bonusCount + '/' + underCapCount + ' players granted +1 fight (max ' + config.maxFightsPerDay + ')');
+    if (bonusCount > 0) {
+      console.log('[MINUTE] ' + bonusCount + '/' + underCapCount + ' players granted +1 fight (max ' + config.maxFightsPerDay + ')');
+    }
   };
   
   setInterval(minuteForestFightBonus, 60 * 1000);
