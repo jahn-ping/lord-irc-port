@@ -91,7 +91,8 @@ function getState(nick) {
       currentMonster: null,
       displayMode: false,
       pendingCommand: null,
-      pendingArgs: null
+      pendingArgs: null,
+      lastFightState: null
     });
   }
   return userStates.get(nick);
@@ -289,17 +290,22 @@ function showStats(nick) {
 }
 
 function showFullStats(nick) {
-  const stats = game.getPlayerStats(nick);
-  if (!stats) return;
+  const player = loadPlayer(nick);
+  if (!player) return;
 
+  const stats = game.getPlayerStats(nick);
   const xpBar = '='.repeat(Math.floor(stats.xpPercent / 5)) + '-'.repeat(20 - Math.floor(stats.xpPercent / 5));
   
-  sendLines(nick, [
+  const classNames = ['Death Knight', 'Mystic', 'Thief'];
+  const className = classNames[player.class] || 'Warrior';
+  
+  const lines = [
     '',
     stats.name + r("'s Stats..."),
     border(),
     'Experience   : ' + g(game.formatNumber(stats.xp)),
-    'Level        : ' + g(stats.level) + '   HitPoints   : (' + g(stats.hp) + ' of ' + g(stats.maxhp) + ')',
+    'Level        : ' + g(stats.level) + '   Class       : ' + g(className),
+    'HitPoints   : (' + g(stats.hp) + ' of ' + g(stats.maxhp) + ')',
     'Forest Fights: ' + g(stats.fights) + '   PlayerFights: ' + g(stats.pfights),
     'Gold In Hand : ' + g(game.formatNumber(stats.gold)) + '   Gold In Bank: ' + g(game.formatNumber(stats.bank)),
     'Weapon       : ' + g(stats.weapon) + '   Atk Strength: ' + g(stats.str),
@@ -307,10 +313,23 @@ function showFullStats(nick) {
     'Charm        : ' + g(stats.charm) + '   Gems        : ' + g(stats.gems),
     '',
     'XP to next: ' + g(game.formatNumber(stats.nextXp)) + ' [' + g(xpBar) + '] ' + g(stats.xpPercent + '%'),
-    '',
-    '(R)eturn to town',
     ''
-  ]);
+  ];
+  
+  if (player.skill_charges_max > 0) {
+    const timers = getSkillChargeTimers(player);
+    if (timers.length > 0) {
+      lines.push('Skill Charges: ' + player.skill_charges_active + '/' + player.skill_charges_max + ' (refreshing: ' + timers.join(', ') + ')');
+    } else {
+      lines.push('Skill Charges: ' + player.skill_charges_active + '/' + player.skill_charges_max);
+    }
+  }
+  
+  lines.push('');
+  lines.push('(R)eturn to town');
+  lines.push('');
+  
+  sendLines(nick, lines);
   setState(nick, PLAYER_STATES.STATS);
 }
 
@@ -687,10 +706,15 @@ function startMasterFight(nick) {
   ];
 
   lines.push(statLine(nick));
-  lines.push(w('(A)ttack (R)un'));
+  const skillText = getSkillMenuText(player);
+  lines.push(w('(A)ttack ') + skillText + w('(R)un'));
   lines.push('');
 
   sendLines(nick, lines);
+  {
+    const us = getState(nick);
+    us.lastFightState = PLAYER_STATES.FIGHT_MASTER;
+  }
   setState(nick, PLAYER_STATES.FIGHT_MASTER);
 }
 
@@ -716,11 +740,20 @@ function processMasterAttack(nick) {
     monster.hp = 0;
     const xpGain = Math.floor(monster.maxhp * 0.5);
     game.addExperience(nick, xpGain);
+    const levelUp = game.checkLevelUp(nick);
     const skillResult = game.incrementSeenMaster(nick);
     
     lines.push(border());
     lines.push('You have defeated ' + monster.name + '!');
     lines.push('You gain ' + g(xpGain) + ' experience!');
+    
+    if (levelUp && levelUp.levelUp) {
+      lines.push('');
+      lines.push(r('********** LEVEL UP! **********'));
+      lines.push('You are now level ' + g(levelUp.newLevel) + '!');
+      lines.push('HP: ' + g(levelUp.gains.hp) + '  Str: ' + g(levelUp.gains.str) + '  Def: ' + g(levelUp.gains.def));
+      lines.push(r('*******************************'));
+    }
     
     if (skillResult && skillResult.skillRaised) {
       lines.push('');
@@ -768,7 +801,7 @@ function processMasterAttack(nick) {
   lines.push('');
   lines.push('HP: (' + g(newPlayerHp) + ' of ' + g(stats.maxhp) + ') - Master HP: (' + g(monster.hp) + ' of ' + g(monster.maxhp) + ')');
   lines.push('');
-  lines.push(w('(A)ttack (R)un'));
+  lines.push(w('(A)ttack ') + getSkillMenuText(stats) + w('(R)un'));
   lines.push('');
 
   flushQueue(nick);
@@ -924,7 +957,6 @@ function startPlayerFight(nick, targetIndex) {
   }
 
   const refreshedPlayer = checkAndRefreshSkills(nick);
-  const refreshTime = getSkillRefreshTime(refreshedPlayer);
   
   const lines = [
     '',
@@ -936,10 +968,6 @@ function startPlayerFight(nick, targetIndex) {
     target.name + ' HP: (' + g(target.hp) + ' of ' + g(target.maxhp) + ')',
     ''
   ];
-
-  if (refreshTime) {
-    lines.push('Skills refresh in: ' + refreshTime);
-  }
   
   lines.push(statLine(nick));
   const skillText = getSkillMenuText(refreshedPlayer);
@@ -947,6 +975,10 @@ function startPlayerFight(nick, targetIndex) {
   lines.push('');
 
   sendLines(nick, lines);
+  {
+    const us = getState(nick);
+    us.lastFightState = PLAYER_STATES.FIGHT_PLAYER;
+  }
   setState(nick, PLAYER_STATES.FIGHT_PLAYER);
 }
 
@@ -1056,7 +1088,7 @@ function processPlayerAttack(nick) {
   lines.push('');
   lines.push('HP: (' + g(newPlayerHp) + ' of ' + g(stats.maxhp) + ') - ' + monster.name + ' HP: (' + g(monster.hp) + ' of ' + g(monster.maxhp) + ')');
   lines.push('');
-  lines.push(w('(A)ttack (R)un'));
+  lines.push(w('(A)ttack ') + getSkillMenuText(stats) + w('(R)un'));
   lines.push('');
 
   flushQueue(nick);
@@ -1108,15 +1140,34 @@ function showLogin(nick) {
       player.pfights_timer = null;
     }
     
-    if (!player.usesd) player.usesd = 0;
-    if (!player.usesm) player.usesm = 0;
-    if (!player.usest) player.usest = 0;
+    if (!player.skill_charge_timers) {
+      player.skill_charge_timers = [];
+    }
     
-    if (!player.skill_reset_timer || now >= player.skill_reset_timer) {
-      const classType = ['Death Knight', 'Mystic', 'Thief'][player.class] || 'Warrior';
-      const useField = ['usesd', 'usesm', 'usest'][player.class] || 'usesd';
-      player[useField] = (player[useField] || 0) + 1;
-      player.skill_reset_timer = now + (30 * 60 * 1000);
+    if (player.skill_charges_max === undefined) {
+      if (player.class === 0) {
+        player.skill_charges_max = 1;
+        player.skill_charges_active = 1;
+      } else {
+        player.skill_charges_max = 0;
+        player.skill_charges_active = 0;
+      }
+    }
+    
+    if (player.skill_charges_active === undefined) {
+      player.skill_charges_active = player.skill_charges_max;
+    }
+    
+    if (player.skill_charge_timers && player.skill_charge_timers.length > 0) {
+      for (let i = 0; i < player.skill_charge_timers.length; i++) {
+        if (player.skill_charge_timers[i] && now >= player.skill_charge_timers[i]) {
+          player.skill_charges_active++;
+          player.skill_charge_timers[i] = null;
+        }
+      }
+      if (player.skill_charges_active > player.skill_charges_max) {
+        player.skill_charges_active = player.skill_charges_max;
+      }
     }
     
     savePlayer(playerNick, player);
@@ -1338,6 +1389,10 @@ function startFight(nick) {
   lines.push(r('The Forest') + w('  (A,R,Q) (? for menu)'));
   
   sendLines(nick, lines);
+  {
+    const us = getState(nick);
+    us.lastFightState = PLAYER_STATES.FIGHT;
+  }
   setState(nick, PLAYER_STATES.FIGHT);
 }
 
@@ -1400,6 +1455,10 @@ function processAttack(nick) {
     lines.push('');
     
     setState(nick, PLAYER_STATES.FIGHT);
+    {
+      const us = getState(nick);
+      us.lastFightState = PLAYER_STATES.FIGHT;
+    }
     flushQueue(nick);
     sendLines(nick, lines);
   }
@@ -1632,22 +1691,98 @@ function endDwarfRound(nick) {
   } else {
     gameState.result = 'Push! Your bet is returned.';
   }
-  
+   
   showDwarfGameState(nick);
 }
 
-function getSkillMenuText(player) {
-  const classNames = ['Death Knight', 'Mystic', 'Thief'];
-  const className = classNames[player.class] || 'Warrior';
-  const usesField = ['usesd', 'usesm', 'usest'][player.class];
-  const uses = player[usesField] || 0;
+function returnToFightState(nick, lastFightState) {
+  switch (lastFightState) {
+    case PLAYER_STATES.FIGHT:
+      showFightState(nick);
+      break;
+    case PLAYER_STATES.FIGHT_PLAYER:
+      showPlayerFightState(nick);
+      break;
+    case PLAYER_STATES.FIGHT_MASTER:
+      showMasterFightState(nick);
+      break;
+    default:
+      showFightState(nick);
+  }
+}
+
+function showPlayerFightState(nick) {
+  const userState = getState(nick);
+  const monster = userState.currentMonster;
+  if (!monster) {
+    sendNotice(nick, 'No player to fight!');
+    showMainMenu(nick);
+    return;
+  }
   
-  if (uses > 0) {
-    switch (player.class) {
-      case 0: return w('(D)estroy '); // Death Knight
-      case 1: return w('(M)agic ');   // Mystic
-      case 2: return w('(T)hieve ');  // Thief
-    }
+  const refreshedPlayer = checkAndRefreshSkills(nick);
+  const stats = game.getPlayerStats(nick);
+  
+  const lines = [
+    '',
+    r('**PLAYER FIGHT**'),
+    monster.name + ' HP: (' + g(monster.hp) + ' of ' + g(monster.maxhp) + ')',
+    ''
+  ];
+  
+  lines.push(statLine(nick));
+  const skillText = getSkillMenuText(refreshedPlayer);
+  lines.push(w('(A)ttack ') + skillText + w('(R)un'));
+  lines.push('');
+  const skillKeys = { 0: 'D', 1: 'M', 2: 'T' };
+  const hasSkill = refreshedPlayer.skill_charges_max > 0 && refreshedPlayer.skill_charges_active > 0;
+  const helpKeys = hasSkill ? '(A,' + skillKeys[refreshedPlayer.class] + ',R) (? for menu)' : '(A,R) (? for menu)';
+  lines.push(r('Player Fight') + w('  ' + helpKeys));
+  lines.push('');
+
+  sendLines(nick, lines);
+}
+
+function showMasterFightState(nick) {
+  const userState = getState(nick);
+  const monster = userState.currentMonster;
+  const player = checkAndRefreshSkills(nick);
+  
+  if (!monster || !player) {
+    sendNotice(nick, 'No master to fight!');
+    showTraining(nick);
+    return;
+  }
+  
+  const lines = [
+    '',
+    r('**MASTER FIGHT**'),
+    monster.name + ' HP: (' + g(monster.hp) + ' of ' + g(monster.maxhp) + ')',
+    ''
+  ];
+  
+  lines.push(statLine(nick));
+  const skillText = getSkillMenuText(player);
+  lines.push(w('(A)ttack ') + skillText + w('(R)un'));
+  lines.push('');
+  const skillKeys = { 0: 'D', 1: 'M', 2: 'T' };
+  const hasSkill = player.skill_charges_max > 0 && player.skill_charges_active > 0;
+  const helpKeys = hasSkill ? '(A,' + skillKeys[player.class] + ',R) (? for menu)' : '(A,R) (? for menu)';
+  lines.push(r('Master Fight') + w('  ' + helpKeys));
+  lines.push('');
+  
+  sendLines(nick, lines);
+}
+
+function getSkillMenuText(player) {
+  if (!player.skill_charges_max || player.skill_charges_active <= 0) return '';
+  
+  const chargeStatus = player.skill_charges_active < player.skill_charges_max ? ' (' + player.skill_charges_active + '/' + player.skill_charges_max + ')' : '';
+  
+  switch (player.class) {
+    case 0: return w('(D)estroy ' + chargeStatus + ' '); // Death Knight
+    case 1: return w('(M)agic ' + chargeStatus + ' ');   // Mystic
+    case 2: return w('(T)hieve ' + chargeStatus + ' ');  // Thief
   }
   return '';
 }
@@ -1657,32 +1792,56 @@ function checkAndRefreshSkills(nick) {
   if (!player) return player;
   
   const now = Date.now();
-  if (player.skill_reset_timer && now >= player.skill_reset_timer) {
-    const classType = ['Death Knight', 'Mystic', 'Thief'][player.class] || 'Warrior';
-    const useField = ['usesd', 'usesm', 'usest'][player.class] || 'usesd';
-    player[useField] = (player[useField] || 0) + 1;
-    player.skill_reset_timer = now + (30 * 60 * 1000);
+  
+  if (!player.skill_charge_timers) {
+    player.skill_charge_timers = [];
+  }
+  if (player.skill_charges_active === undefined) {
+    player.skill_charges_active = player.skill_charges_max || 1;
+  }
+  
+  let refreshed = false;
+  for (let i = 0; i < player.skill_charge_timers.length; i++) {
+    if (player.skill_charge_timers[i] && now >= player.skill_charge_timers[i]) {
+      player.skill_charges_active++;
+      player.skill_charge_timers[i] = null;
+      refreshed = true;
+    }
+  }
+  
+  if (refreshed) {
     savePlayer(nick, player);
-    console.log('[SKILLS] ' + player.name + '\'s skills refreshed! New count: ' + player[useField]);
+    console.log('[SKILLS] ' + player.name + '\'s skills refreshed! Active: ' + player.skill_charges_active + '/' + player.skill_charges_max);
   }
   
   return player;
 }
 
-function getSkillRefreshTime(player) {
-  if (!player.skill_reset_timer) return '';
+function getSkillChargeStatus(player) {
+  if (!player.skill_charges_max) return '';
+  if (player.skill_charges_active >= player.skill_charges_max) return '';
+  return ' (' + player.skill_charges_active + '/' + player.skill_charges_max + ' charges)';
+}
+
+function getSkillChargeTimers(player) {
+  if (!player.skill_charge_timers || player.skill_charge_timers.length === 0) return [];
   const now = Date.now();
-  const remaining = Math.max(0, player.skill_reset_timer - now);
-  const mins = Math.floor(remaining / 60000);
-  const secs = Math.floor((remaining % 60000) / 1000);
-  return mins + 'm ' + secs + 's remaining';
+  const timers = [];
+  for (const timer of player.skill_charge_timers) {
+    if (timer && timer > now) {
+      const remaining = timer - now;
+      const mins = Math.floor(remaining / 60000);
+      const secs = Math.floor((remaining % 60000) / 1000);
+      timers.push(mins + 'm ' + secs + 's');
+    }
+  }
+  return timers;
 }
 
 function showSkillMenu(nick) {
   const player = checkAndRefreshSkills(nick);
   if (!player) return;
   
-  const refreshTime = getSkillRefreshTime(player);
   const lines = [
     '',
     border(),
@@ -1691,38 +1850,47 @@ function showSkillMenu(nick) {
     ''
   ];
   
-  switch (player.class) {
-    case 0: // Death Knight
-      lines.push('  ** DESTROY **');
-      lines.push('');
-      lines.push('  You perform a devastating power attack!');
-      lines.push('  Damage: Strength x 1.5-5.5 + Weapon Attack x multiplier');
-      lines.push('');
-      lines.push('  Uses remaining: ' + (player.usesd || 0));
-      break;
-      
-    case 1: // Mystic
-      lines.push('  ** MYSTICAL SKILLS **');
-      lines.push('');
-      lines.push('  (P)inch Real Hard - Pinch the enemy (uses 1)');
-      lines.push('  (D)isappear - Escape the fight (uses 4)');
-      lines.push('');
-      lines.push('  Uses remaining: ' + (player.usesm || 0));
-      break;
-      
-    case 2: // Thief
-      lines.push('  ** THIEVING SKILLS **');
-      lines.push('');
-      lines.push('  (S)teal Gold - Steal gold from monster (uses 1)');
-      lines.push('');
-      lines.push('  Uses remaining: ' + (player.usest || 0));
-      break;
+  if (!player.skill_charges_max || player.skill_charges_max === 0) {
+    lines.push('  You have not learned any skills yet.');
+    lines.push('  Train with masters to learn class skills.');
+  } else {
+    const skillKeys = { 0: 'D', 1: 'M', 2: 'T' };
+    const skillNames = { 0: 'Destroy', 1: 'Magic', 2: 'Steal' };
+    
+    switch (player.class) {
+      case 0: // Death Knight
+        lines.push('  ** DESTROY **');
+        lines.push('');
+        lines.push('  You perform a devastating power attack!');
+        lines.push('  Damage: Strength x 1.5-5.5 + Weapon Attack x multiplier');
+        lines.push('');
+        lines.push('  Charges: ' + player.skill_charges_active + '/' + player.skill_charges_max);
+        lines.push('');
+        lines.push('  Press (D) to use Destroy');
+        break;
+        
+      case 1: // Mystic
+        lines.push('  ** MYSTICAL SKILLS **');
+        lines.push('');
+        lines.push('  (P)inch Real Hard - Pinch the enemy');
+        lines.push('');
+        lines.push('  Charges: ' + player.skill_charges_active + '/' + player.skill_charges_max);
+        lines.push('');
+        lines.push('  Press (P) to use Pinch');
+        break;
+        
+      case 2: // Thief
+        lines.push('  ** THIEVING SKILLS **');
+        lines.push('');
+        lines.push('  (S)teal Gold - Steal gold from monster');
+        lines.push('');
+        lines.push('  Charges: ' + player.skill_charges_active + '/' + player.skill_charges_max);
+        lines.push('');
+        lines.push('  Press (S) to use Steal');
+        break;
+    }
   }
   
-  if (refreshTime) {
-    lines.push('');
-    lines.push('Skills refresh in: ' + refreshTime);
-  }
   lines.push('');
   lines.push(w('(R)eturn to Fight'));
   lines.push('');
@@ -1738,8 +1906,6 @@ function showFightState(nick) {
   
   if (!monster || !player) return;
   
-  const refreshTime = getSkillRefreshTime(player);
-  
   const lines = [
     '',
     r('**FIGHT**'),
@@ -1751,19 +1917,22 @@ function showFightState(nick) {
     ''
   ];
   
-  if (refreshTime) {
-    lines.push('Skills refresh in: ' + refreshTime);
-  }
-  
   lines.push('');
   lines.push(statLine(nick));
   const skillText = getSkillMenuText(player);
   lines.push(w('(A)ttack ') + skillText + w('(S)tats (R)un'));
   lines.push('');
-  lines.push(r('The Forest') + w('  (A,R,Q) (? for menu)'));
+  const skillKeys = { 0: 'D', 1: 'M', 2: 'T' };
+  const hasSkill = player.skill_charges_max > 0 && player.skill_charges_active > 0;
+  const helpKeys = hasSkill ? '(A,' + skillKeys[player.class] + ',R,Q) (? for menu)' : '(A,R,Q) (? for menu)';
+  lines.push(r('The Forest') + w('  ' + helpKeys));
   
   sendLines(nick, lines);
   setState(nick, PLAYER_STATES.FIGHT);
+  {
+    const us = getState(nick);
+    us.lastFightState = PLAYER_STATES.FIGHT;
+  }
 }
 
 function performSkill(nick, skill) {
@@ -1776,13 +1945,17 @@ function performSkill(nick, skill) {
     return;
   }
   
+  if (!player.skill_charges_max || player.skill_charges_active <= 0) {
+    sendNotice(nick, 'No skill charges remaining!');
+    return;
+  }
+  
+  const now = Date.now();
   switch (player.class) {
     case 0: // Death Knight - Power Attack
-      if ((player.usesd || 0) <= 0) {
-        sendNotice(nick, 'No Destroy uses remaining!');
-        return;
-      }
-      player.usesd--;
+      player.skill_charges_active--;
+      player.skill_charge_timers.push(now + (30 * 60 * 1000));
+      if (player.skill_charges_active < 0) player.skill_charges_active = 0;
       
       const dkMultiplier = random(150, 550) / 100;
       const weaponAttack = game.getWeaponAttack(player.weapon_num);
@@ -1796,24 +1969,22 @@ function performSkill(nick, skill) {
         r('** DESTROY **'),
         'You perform a devastating power attack!',
         'You hit ' + monster.name + ' for ' + dkDamage + ' damage!',
-        'Uses remaining: ' + player.usesd,
+        'Charges: ' + player.skill_charges_active + '/' + player.skill_charges_max,
         ''
       ]);
       break;
       
     case 1: // Mystic
-      if ((player.usesm || 0) <= 0) {
-        sendNotice(nick, 'No Mystic uses remaining!');
-        return;
-      }
-      
       if (skill === 'p') { // Pinch
-        player.usesm--;
         const monsterLevel = Math.floor(monster.str / 10);
         if (player.level <= monsterLevel) {
           sendNotice(nick, 'Target level too high for Pinch!');
           return;
         }
+        
+        player.skill_charges_active--;
+        player.skill_charge_timers.push(now + (30 * 60 * 1000));
+        if (player.skill_charges_active < 0) player.skill_charges_active = 0;
         
         const wpnAttack = game.getWeaponAttack(player.weapon_num);
         const pinchMultiplier = random(100, 150) / 100;
@@ -1826,18 +1997,16 @@ function performSkill(nick, skill) {
           r('** PINCH **'),
           'You whisper the word. You smile as ' + monster.name + ' screams out in pain.',
           'You hit ' + monster.name + ' for ' + pinchDamage + ' damage!',
-          'Uses remaining: ' + player.usesm,
+          'Charges: ' + player.skill_charges_active + '/' + player.skill_charges_max,
           ''
         ]);
       }
       break;
       
     case 2: // Thief - Steal
-      if ((player.usest || 0) <= 0) {
-        sendNotice(nick, 'No Thieve uses remaining!');
-        return;
-      }
-      player.usest--;
+      player.skill_charges_active--;
+      player.skill_charge_timers.push(now + (30 * 60 * 1000));
+      if (player.skill_charges_active < 0) player.skill_charges_active = 0;
       
       const stealTable = [500, 999, 4000, 7992, 13500, 26973, 32000, 63936, 62500, 124875, 108000, 215784];
       const levelIndex = Math.min(Math.max(player.level - 1, 0) * 2, stealTable.length - 2);
@@ -1854,7 +2023,7 @@ function performSkill(nick, skill) {
         r('** STEAL **'),
         'You attempt to steal from ' + monster.name + '!',
         'You manage to make off with ' + stolen + ' gold!',
-        'Uses remaining: ' + player.usest,
+        'Charges: ' + player.skill_charges_active + '/' + player.skill_charges_max,
         ''
       ]);
       break;
@@ -1862,9 +2031,19 @@ function performSkill(nick, skill) {
   
   if (monster.hp <= 0) {
     monster.hp = 0;
-    const result = game.monsterDefeated(nick, monster);
+    const result = game.winMonsterFight(nick, monster);
     if (result) {
-      showVictory(nick, result);
+      const victoryMsg = 'Killed ' + monster.name + '! Got ' + g(game.formatNumber(result.gold)) + ' gold + ' + g(result.xp) + ' XP' + (result.gem ? ' +GEM' : '');
+      sendImmediate(nick, victoryMsg);
+      
+      if (result.levelUp && result.levelUp.levelUp) {
+        sendImmediate(nick, r('*** LEVEL UP! Now LVL' + result.levelUp.newLevel + ' - HP: ' + result.levelUp.gains.hp + ' Str: ' + result.levelUp.gains.str + ' Def: ' + result.levelUp.gains.def + ' ***'));
+      }
+      
+      userState.currentMonster = null;
+      userState.lastFightState = null;
+      showForest(nick);
+      return;
     }
   } else {
     const stats = game.getPlayerStats(nick);
@@ -1895,10 +2074,21 @@ function performSkill(nick, skill) {
     }
     
     lines.push(statLine(nick));
-    lines.push(w('(A)ttack ') + getSkillMenuText(player) + w('(S)tats (R)un'));
-    lines.push('');
-    lines.push(r('The Forest') + w('  (A,R,Q) (? for menu)'));
-    sendLines(nick, lines);
+    const skillText = getSkillMenuText(player);
+    if (userState.lastFightState === PLAYER_STATES.FIGHT_PLAYER) {
+      lines.push(w('(A)ttack ') + skillText + w('(R)un'));
+      lines.push('');
+      sendLines(nick, lines);
+    } else if (userState.lastFightState === PLAYER_STATES.FIGHT_MASTER) {
+      lines.push(w('(A)ttack ') + skillText + w('(R)un'));
+      lines.push('');
+      sendLines(nick, lines);
+    } else {
+      lines.push(w('(A)ttack ') + skillText + w('(S)tats (R)un'));
+      lines.push('');
+      lines.push(r('The Forest') + w('  (A,R,Q) (? for menu)'));
+      sendLines(nick, lines);
+    }
   }
 }
 
@@ -2149,78 +2339,81 @@ function handleCommand(nick, cmd, args) {
       break;
 
     case PLAYER_STATES.FOREST_HUT:
-      const player = loadPlayer(nick);
-      switch (cmdLower) {
-        case 'k':
-          showForestHutKnock(nick, player);
-          break;
-        case 'b':
-          showForestHutBang(nick);
-          break;
-        case 'l':
-          sendNotice(nick, 'Leave the hut and return to forest? (Y/N)');
-          setState(nick, PLAYER_STATES.CONFIRM_LEAVE_HUT);
-          break;
-        default:
-          sendNotice(nick, 'Forest Hut - K (Knock), B (Bang), L (Leave)');
-          break;
+      {
+        const hutPlayer = loadPlayer(nick);
+        switch (cmdLower) {
+          case 'k':
+            showForestHutKnock(nick, hutPlayer);
+            break;
+          case 'b':
+            showForestHutBang(nick);
+            break;
+          case 'l':
+            sendNotice(nick, 'Leave the hut and return to forest? (Y/N)');
+            setState(nick, PLAYER_STATES.CONFIRM_LEAVE_HUT);
+            break;
+          default:
+            sendNotice(nick, 'Forest Hut - K (Knock), B (Bang), L (Leave)');
+            break;
+        }
       }
       break;
 
     case PLAYER_STATES.FOREST_HUT_GUESS:
-      const guess = parseInt(cmd);
-      const userState = getState(nick);
-      const hutGuess = userState.hutGuess;
-      
-      if (isNaN(guess) || guess < 1 || guess > 100) {
-        sendNotice(nick, 'Please enter a number between 1 and 100.');
-        return;
-      }
-      
-      hutGuess.tries++;
-      
-      const lines = [''];
-      
-      if (guess === hutGuess.answer) {
-        lines.push(border());
-        lines.push(r('  ** YOU PASSED THE TEST! **'));
-        lines.push(border());
-        lines.push('');
-        lines.push('  "That\'s right! You read my mind!"');
-        lines.push('  The old man cheers with joy!');
-        lines.push('');
-        lines.push('  ** YOUR CLASS SKILL IS RAISED BY ONE! **');
-        lines.push('');
+      {
+        const guess = parseInt(cmd);
+        const hutGuess = userState.hutGuess;
         
-        sendLines(nick, lines);
-        sendNotice(nick, 'You return to the forest, wiser than before.');
-        showForest(nick);
-      } else if (hutGuess.tries >= hutGuess.maxTries) {
-        lines.push(border());
-        lines.push(r('  ** YOU FAILED THE TEST **'));
-        lines.push(border());
-        lines.push('');
-        lines.push('  "No, no NO! The number was ' + hutGuess.answer + '!"');
-        lines.push('  He slams his window shut in disappointment.');
-        lines.push('');
+        if (isNaN(guess) || guess < 1 || guess > 100) {
+          sendNotice(nick, 'Please enter a number between 1 and 100.');
+          return;
+        }
         
-        sendLines(nick, lines);
-        sendNotice(nick, 'You return to the forest, wiser than before.');
-        showForest(nick);
-      } else if (guess < hutGuess.answer) {
-        lines.push('  "The number is higher than that!"');
-        lines.push('  Tries remaining: ' + (hutGuess.maxTries - hutGuess.tries));
-        lines.push('');
-        lines.push('  Enter your guess (1-100):');
-        lines.push('');
-        sendLines(nick, lines);
-      } else {
-        lines.push('  "The number is lower than that!"');
-        lines.push('  Tries remaining: ' + (hutGuess.maxTries - hutGuess.tries));
-        lines.push('');
-        lines.push('  Enter your guess (1-100):');
-        lines.push('');
-        sendLines(nick, lines);
+        hutGuess.tries++;
+        
+        const lines = [''];
+        
+        if (guess === hutGuess.answer) {
+          lines.push(border());
+          lines.push(r('  ** YOU PASSED THE TEST! **'));
+          lines.push(border());
+          lines.push('');
+          lines.push('  "That\'s right! You read my mind!"');
+          lines.push('  The old man cheers with joy!');
+          lines.push('');
+          lines.push('  ** YOUR CLASS SKILL IS RAISED BY ONE! **');
+          lines.push('');
+          
+          sendLines(nick, lines);
+          sendNotice(nick, 'You return to the forest, wiser than before.');
+          showForest(nick);
+        } else if (hutGuess.tries >= hutGuess.maxTries) {
+          lines.push(border());
+          lines.push(r('  ** YOU FAILED THE TEST **'));
+          lines.push(border());
+          lines.push('');
+          lines.push('  "No, no NO! The number was ' + hutGuess.answer + '!"');
+          lines.push('  He slams his window shut in disappointment.');
+          lines.push('');
+          
+          sendLines(nick, lines);
+          sendNotice(nick, 'You return to the forest, wiser than before.');
+          showForest(nick);
+        } else if (guess < hutGuess.answer) {
+          lines.push('  "The number is higher than that!"');
+          lines.push('  Tries remaining: ' + (hutGuess.maxTries - hutGuess.tries));
+          lines.push('');
+          lines.push('  Enter your guess (1-100):');
+          lines.push('');
+          sendLines(nick, lines);
+        } else {
+          lines.push('  "The number is lower than that!"');
+          lines.push('  Tries remaining: ' + (hutGuess.maxTries - hutGuess.tries));
+          lines.push('');
+          lines.push('  Enter your guess (1-100):');
+          lines.push('');
+          sendLines(nick, lines);
+        }
       }
       break;
 
@@ -2258,13 +2451,15 @@ function handleCommand(nick, cmd, args) {
         case 'd': case 'D':
         case 'm': case 'M':
         case 't': case 'T':
-          const p = loadPlayer(nick);
-          if (p && ((p.class === 0 && cmdLower === 'd') || 
-                     (p.class === 1 && cmdLower === 'm') || 
-                     (p.class === 2 && cmdLower === 't'))) {
-            showSkillMenu(nick);
-          } else {
-            sendNotice(nick, 'Forest Fight - A,R,Q');
+          {
+            const p = loadPlayer(nick);
+            if (p && ((p.class === 0 && cmdLower === 'd') || 
+                       (p.class === 1 && cmdLower === 'm') || 
+                       (p.class === 2 && cmdLower === 't'))) {
+              showSkillMenu(nick);
+            } else {
+              sendNotice(nick, 'Forest Fight - A,R,Q');
+            }
           }
           break;
         case 'r': case 'R':
@@ -2281,35 +2476,45 @@ function handleCommand(nick, cmd, args) {
       break;
       
     case PLAYER_STATES.SKILL_MENU:
-      const skillPlayer = loadPlayer(nick);
-      switch (cmdLower) {
-        case 'r': case 'R':
-          showFightState(nick);
+      {
+        const skillPlayer = loadPlayer(nick);
+        const userState = getState(nick);
+        const lastFight = userState.lastFightState;
+        
+        if (!skillPlayer.skill_charges_max || skillPlayer.skill_charges_active <= 0) {
+          sendNotice(nick, 'No skill charges remaining!');
+          returnToFightState(nick, lastFight);
           break;
-        case 'd':
-          if (skillPlayer.class === 0) {
-            performSkill(nick, 'd');
-          } else {
-            sendNotice(nick, 'Invalid skill!');
-          }
-          break;
-        case 'p':
-          if (skillPlayer.class === 1) {
-            performSkill(nick, 'p');
-          } else {
-            sendNotice(nick, 'Invalid skill!');
-          }
-          break;
-        case 's':
-          if (skillPlayer.class === 2) {
-            performSkill(nick, 's');
-          } else {
-            sendNotice(nick, 'Invalid skill!');
-          }
-          break;
-        default:
-          sendNotice(nick, 'Invalid skill choice!');
-          break;
+        }
+        switch (cmdLower) {
+          case 'r': case 'R':
+            returnToFightState(nick, lastFight);
+            break;
+          case 'd':
+            if (skillPlayer.class === 0) {
+              performSkill(nick, 'd');
+            } else {
+              sendNotice(nick, 'Invalid skill!');
+            }
+            break;
+          case 'p':
+            if (skillPlayer.class === 1) {
+              performSkill(nick, 'p');
+            } else {
+              sendNotice(nick, 'Invalid skill!');
+            }
+            break;
+          case 's':
+            if (skillPlayer.class === 2) {
+              performSkill(nick, 's');
+            } else {
+              sendNotice(nick, 'Invalid skill!');
+            }
+            break;
+          default:
+            sendNotice(nick, 'Invalid skill choice!');
+            break;
+        }
       }
       break;
 
@@ -2343,29 +2548,33 @@ function handleCommand(nick, cmd, args) {
       break;
 
     case PLAYER_STATES.WEAPONS_BUY:
-      const wNum = parseInt(cmd);
-      if (!isNaN(wNum) && wNum >= 1 && wNum <= game.weapons.length) {
-        const weapon = game.weapons[wNum - 1];
-        userState.temp = { buyWeaponNum: wNum };
-        sendNotice(nick, 'Buy ' + weapon.name + ' for ' + g(game.formatNumber(weapon.cost)) + ' gold? (Y/N)');
-        setState(nick, PLAYER_STATES.CONFIRM_WEAPON_BUY);
-      } else {
-        sendNotice(nick, 'Invalid weapon number!');
-        showWeapons(nick);
+      {
+        const wNum = parseInt(cmd);
+        if (!isNaN(wNum) && wNum >= 1 && wNum <= game.weapons.length) {
+          const weapon = game.weapons[wNum - 1];
+          userState.temp = { buyWeaponNum: wNum };
+          sendNotice(nick, 'Buy ' + weapon.name + ' for ' + g(game.formatNumber(weapon.cost)) + ' gold? (Y/N)');
+          setState(nick, PLAYER_STATES.CONFIRM_WEAPON_BUY);
+        } else {
+          sendNotice(nick, 'Invalid weapon number!');
+          showWeapons(nick);
+        }
       }
       break;
 
     case PLAYER_STATES.WEAPONS_SELL:
-      const wsNum = parseInt(cmd);
-      if (!isNaN(wsNum) && wsNum >= 1 && wsNum <= game.weapons.length) {
-        const result = game.sellWeapon(nick, wsNum);
-        if (result.success) {
-          sendNotice(nick, 'You sold your weapon for ' + g(game.formatNumber(result.sellPrice)) + ' gold!');
+      {
+        const wsNum = parseInt(cmd);
+        if (!isNaN(wsNum) && wsNum >= 1 && wsNum <= game.weapons.length) {
+          const result = game.sellWeapon(nick, wsNum);
+          if (result.success) {
+            sendNotice(nick, 'You sold your weapon for ' + g(game.formatNumber(result.sellPrice)) + ' gold!');
+          } else {
+            sendNotice(nick, result.error);
+          }
         } else {
-          sendNotice(nick, result.error);
+          sendNotice(nick, 'Invalid weapon number!');
         }
-      } else {
-        sendNotice(nick, 'Invalid weapon number!');
       }
       showWeapons(nick);
       break;
@@ -2400,29 +2609,33 @@ function handleCommand(nick, cmd, args) {
       break;
 
     case PLAYER_STATES.ARMOR_BUY:
-      const aNum = parseInt(cmd);
-      if (!isNaN(aNum) && aNum >= 1 && aNum <= game.armors.length) {
-        const armor = game.armors[aNum - 1];
-        userState.temp = { buyArmorNum: aNum };
-        sendNotice(nick, 'Buy ' + armor.name + ' for ' + g(game.formatNumber(armor.cost)) + ' gold? (Y/N)');
-        setState(nick, PLAYER_STATES.CONFIRM_ARMOR_BUY);
-      } else {
-        sendNotice(nick, 'Invalid armor number!');
-        showArmor(nick);
+      {
+        const aNum = parseInt(cmd);
+        if (!isNaN(aNum) && aNum >= 1 && aNum <= game.armors.length) {
+          const armor = game.armors[aNum - 1];
+          userState.temp = { buyArmorNum: aNum };
+          sendNotice(nick, 'Buy ' + armor.name + ' for ' + g(game.formatNumber(armor.cost)) + ' gold? (Y/N)');
+          setState(nick, PLAYER_STATES.CONFIRM_ARMOR_BUY);
+        } else {
+          sendNotice(nick, 'Invalid armor number!');
+          showArmor(nick);
+        }
       }
       break;
 
     case PLAYER_STATES.ARMOR_SELL:
-      const asNum = parseInt(cmd);
-      if (!isNaN(asNum) && asNum >= 1 && asNum <= game.armors.length) {
-        const result = game.sellArmor(nick, asNum);
-        if (result.success) {
-          sendNotice(nick, 'You sold your armor for ' + g(game.formatNumber(result.sellPrice)) + ' gold!');
+      {
+        const asNum = parseInt(cmd);
+        if (!isNaN(asNum) && asNum >= 1 && asNum <= game.armors.length) {
+          const result = game.sellArmor(nick, asNum);
+          if (result.success) {
+            sendNotice(nick, 'You sold your armor for ' + g(game.formatNumber(result.sellPrice)) + ' gold!');
+          } else {
+            sendNotice(nick, result.error);
+          }
         } else {
-          sendNotice(nick, result.error);
+          sendNotice(nick, 'Invalid armor number!');
         }
-      } else {
-        sendNotice(nick, 'Invalid armor number!');
       }
       showArmor(nick);
       break;
@@ -2508,31 +2721,35 @@ function handleCommand(nick, cmd, args) {
       break;
 
     case PLAYER_STATES.BANK_DEPOSIT:
-      const depAmt = parseInt(cmd);
-      if (!isNaN(depAmt) && depAmt > 0) {
-        const result = game.depositBank(nick, depAmt);
-        if (result.success) {
-          sendNotice(nick, 'Deposited ' + g(game.formatNumber(result.amount)) + ' gold. Bank: ' + g(game.formatNumber(result.newBalance)));
+      {
+        const depAmt = parseInt(cmd);
+        if (!isNaN(depAmt) && depAmt > 0) {
+          const result = game.depositBank(nick, depAmt);
+          if (result.success) {
+            sendNotice(nick, 'Deposited ' + g(game.formatNumber(result.amount)) + ' gold. Bank: ' + g(game.formatNumber(result.newBalance)));
+          } else {
+            sendNotice(nick, result.error);
+          }
         } else {
-          sendNotice(nick, result.error);
+          sendNotice(nick, 'Invalid amount!');
         }
-      } else {
-        sendNotice(nick, 'Invalid amount!');
       }
       showBank(nick);
       break;
 
     case PLAYER_STATES.BANK_WITHDRAW:
-      const withAmt = parseInt(cmd);
-      if (!isNaN(withAmt) && withAmt > 0) {
-        const result = game.withdrawBank(nick, withAmt);
-        if (result.success) {
-          sendNotice(nick, 'Withdrew ' + g(game.formatNumber(result.amount)) + ' gold. Bank: ' + g(game.formatNumber(result.newBalance)));
+      {
+        const withAmt = parseInt(cmd);
+        if (!isNaN(withAmt) && withAmt > 0) {
+          const result = game.withdrawBank(nick, withAmt);
+          if (result.success) {
+            sendNotice(nick, 'Withdrew ' + g(game.formatNumber(result.amount)) + ' gold. Bank: ' + g(game.formatNumber(result.newBalance)));
+          } else {
+            sendNotice(nick, result.error);
+          }
         } else {
-          sendNotice(nick, result.error);
+          sendNotice(nick, 'Invalid amount!');
         }
-      } else {
-        sendNotice(nick, 'Invalid amount!');
       }
       showBank(nick);
       break;
@@ -2628,6 +2845,17 @@ function handleCommand(nick, cmd, args) {
         processMasterAttack(nick);
         break;
       }
+      if (cmdLower === 'd' || cmdLower === 'm' || cmdLower === 't') {
+        const p = loadPlayer(nick);
+        if (p && ((p.class === 0 && cmdLower === 'd') || 
+                   (p.class === 1 && cmdLower === 'm') || 
+                   (p.class === 2 && cmdLower === 't'))) {
+          showSkillMenu(nick);
+        } else {
+          sendNotice(nick, 'Fight Master - A,R');
+        }
+        break;
+      }
       if (cmdLower === 'r') {
         userState.currentMonster = null;
         showTraining(nick);
@@ -2642,10 +2870,12 @@ function handleCommand(nick, cmd, args) {
         showMainMenu(nick);
         break;
       }
-      const targetNum = parseInt(cmd);
-      if (!isNaN(targetNum) && targetNum > 0) {
-        startPlayerFight(nick, targetNum);
-        break;
+      {
+        const targetNum = parseInt(cmd);
+        if (!isNaN(targetNum) && targetNum > 0) {
+          startPlayerFight(nick, targetNum);
+          break;
+        }
       }
       sendNotice(nick, 'Slaughter - Enter number or R,Q');
       break;
@@ -2662,13 +2892,15 @@ function handleCommand(nick, cmd, args) {
         break;
       }
       if (cmdLower === 'd' || cmdLower === 'm' || cmdLower === 't') {
-        const p = loadPlayer(nick);
-        if (p && ((p.class === 0 && cmdLower === 'd') || 
-                   (p.class === 1 && cmdLower === 'm') || 
-                   (p.class === 2 && cmdLower === 't'))) {
-          showSkillMenu(nick);
-        } else {
-          sendNotice(nick, 'Player Fight - A,R');
+        {
+          const p = loadPlayer(nick);
+          if (p && ((p.class === 0 && cmdLower === 'd') || 
+                     (p.class === 1 && cmdLower === 'm') || 
+                     (p.class === 2 && cmdLower === 't'))) {
+            showSkillMenu(nick);
+          } else {
+            sendNotice(nick, 'Player Fight - A,R');
+          }
         }
         break;
       }
@@ -2687,18 +2919,19 @@ function handleCommand(nick, cmd, args) {
       break;
 
     case PLAYER_STATES.DWARF_BETTING:
-      const bet = parseInt(cmd);
-      if (!isNaN(bet) && bet > 0) {
-        startDwarfRound(nick, bet);
-      } else {
-        sendNotice(nick, 'Please enter a valid bet amount.');
-        showDwarfGames(nick);
+      {
+        const bet = parseInt(cmd);
+        if (!isNaN(bet) && bet > 0) {
+          startDwarfRound(nick, bet);
+        } else {
+          sendNotice(nick, 'Please enter a valid bet amount.');
+          showDwarfGames(nick);
+        }
       }
       break;
 
     case PLAYER_STATES.DWARF_GAMES:
       {
-        const userState = getState(nick);
         const gameState = userState.dwarfGame;
         
         if (cmdLower === 'h') {
@@ -2737,7 +2970,6 @@ function handleCommand(nick, cmd, args) {
 
     case PLAYER_STATES.CONFIRM_LEAVE_DWARF:
       if (cmdLower === 'y' || cmdLower === 'Y') {
-        const userState = getState(nick);
         userState.currentMonster = null;
         showForest(nick);
       } else if (cmdLower === 'n' || cmdLower === 'N') {

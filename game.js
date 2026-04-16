@@ -111,6 +111,11 @@ export function createCharacter(nick, name, playerClass, sex) {
   
   const player = createPlayer(nick, name, playerClass, sex);
   if (player) {
+    if (playerClass === 0) {
+      player.skill_charges_max = 1;
+      player.skill_charges_active = 1;
+    }
+    savePlayer(nick, player);
     return { success: true, message: 'Character created! Welcome to LORD.', player };
   }
   return { success: false, message: 'Error creating character!' };
