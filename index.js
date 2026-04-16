@@ -3013,29 +3013,29 @@ client.addListener('registered', () => {
     }
   });
   
-  const hourlyForestFightBonus = () => {
+  const minuteForestFightBonus = () => {
     const allPlayers = getAllPlayers();
     let bonusCount = 0;
     allPlayers.forEach(player => {
       if (player.irc_nick) {
         const p = loadPlayer(player.irc_nick);
         if (p) {
-          p.fights = Math.min(p.fights + 20, config.maxFightsPerDay);
+          p.fights = Math.min(p.fights + 1, config.maxFightsPerDay);
           savePlayer(player.irc_nick, p);
           bonusCount++;
         }
       }
     });
-    console.log('[HOURLY] Granted +20 forest fights to ' + bonusCount + ' players');
+    console.log('[MINUTE] Granted +1 forest fight to ' + bonusCount + ' players');
   };
   
-  setInterval(hourlyForestFightBonus, 60 * 60 * 1000);
+  setInterval(minuteForestFightBonus, 60 * 1000);
   const now = new Date();
-  const msUntilNextHour = (60 - now.getMinutes()) * 60 * 1000 - now.getSeconds() * 1000;
+  const msUntilNextMinute = (60 - now.getSeconds()) * 1000;
   setTimeout(() => {
-    hourlyForestFightBonus();
-    setInterval(hourlyForestFightBonus, 60 * 60 * 1000);
-  }, msUntilNextHour);
+    minuteForestFightBonus();
+    setInterval(minuteForestFightBonus, 60 * 1000);
+  }, msUntilNextMinute);
 });
 
 client.addListener('pm', (nick, text) => {
