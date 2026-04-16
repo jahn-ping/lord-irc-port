@@ -250,6 +250,14 @@ export function processForestEvent(nick, event) {
       player.gold = clamp(player.gold + Math.floor(travelerGold), 0, config.maxGold);
       result.outcomes.push('The grateful traveler gives you ' + Math.floor(travelerGold) + ' gold!');
       break;
+      
+    case 'wierd':
+      const weirdGems = random(1, 12);
+      player.gems += weirdGems;
+      result.outcomes.push('You follow the angelic sounds for some time...');
+      result.outcomes.push('');
+      result.outcomes.push('You find ' + weirdGems + ' GEMS!');
+      break;
   }
   
   savePlayer(nick, player);
@@ -700,6 +708,44 @@ export function incrementSeenMaster(nick) {
   if (!player) return false;
   
   player.seen_master = (player.seen_master || 0) + 1;
+  
+  if (!player.training_needed) player.training_needed = 0;
+  player.training_needed--;
+  
+  const result = {
+    seen_master: player.seen_master,
+    training_needed: player.training_needed
+  };
+  
+  if (player.training_needed <= 0) {
+    player.training_needed = 3;
+    
+    const useField = ['usesd', 'usesm', 'usest'][player.class] || 'usesd';
+    player[useField] = (player[useField] || 0) + 1;
+    result.skillRaised = true;
+    result.currentUses = player[useField];
+  } else {
+    result.lessonsRemaining = player.training_needed;
+  }
+  
+  savePlayer(nick, player);
+  return result;
+}
+
+export function addGold(nick, amount) {
+  const player = loadPlayer(nick);
+  if (!player) return false;
+  
+  player.gold = clamp(player.gold + amount, 0, config.maxGold);
+  savePlayer(nick, player);
+  return true;
+}
+
+export function takeGold(nick, amount) {
+  const player = loadPlayer(nick);
+  if (!player) return false;
+  
+  player.gold = clamp(player.gold - amount, 0, config.maxGold);
   savePlayer(nick, player);
   return true;
 }

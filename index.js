@@ -37,7 +37,13 @@ const PLAYER_STATES = {
   TRAINING_QUESTION: 'training_question',
   FIGHT_MASTER: 'fight_master',
   SLAUGHTER: 'slaughter',
-  FIGHT_PLAYER: 'fight_player'
+  FIGHT_PLAYER: 'fight_player',
+  DWARF_GAMES: 'dwarf_games',
+  DWARF_BETTING: 'dwarf_betting',
+  FOREST_HUT: 'forest_hut',
+  FOREST_HUT_KNOCK: 'forest_hut_knock',
+  FOREST_HUT_GUESS: 'forest_hut_guess',
+  SKILL_MENU: 'skill_menu'
 };
 
 const userStates = new Map();
@@ -80,7 +86,10 @@ function getState(nick) {
     userStates.set(nick, {
       state: PLAYER_STATES.NONE,
       temp: {},
-      currentMonster: null
+      currentMonster: null,
+      displayMode: false,
+      pendingCommand: null,
+      pendingArgs: null
     });
   }
   return userStates.get(nick);
@@ -123,6 +132,15 @@ function processQueue(nick) {
   const queue = messageQueue.get(nick);
   if (!queue || queue.length === 0 || queueVersion.get(nick) !== version) {
     messageQueue.delete(nick);
+    const userState = getState(nick);
+    if (userState.pendingCommand) {
+      const cmd = userState.pendingCommand;
+      const args = userState.pendingArgs || [];
+      userState.pendingCommand = null;
+      userState.pendingArgs = null;
+      userState.displayMode = false;
+      handleCommand(nick, cmd, args);
+    }
     return;
   }
   
@@ -138,6 +156,17 @@ function processQueue(nick) {
     queueTimeouts.set(nick, timeout);
   } else {
     messageQueue.delete(nick);
+    const userState = getState(nick);
+    if (userState.pendingCommand) {
+      const cmd = userState.pendingCommand;
+      const args = userState.pendingArgs || [];
+      userState.pendingCommand = null;
+      userState.pendingArgs = null;
+      userState.displayMode = false;
+      handleCommand(nick, cmd, args);
+    } else {
+      userState.displayMode = false;
+    }
   }
 }
 
@@ -175,10 +204,12 @@ function clearMessageQueue(nick) {
 }
 
 function sendLines(nick, lines) {
+  const userState = getState(nick);
   if (lines.length > 0) {
     if (!queueTimeouts.has(nick)) {
       clearMessageQueue(nick);
     }
+    userState.displayMode = true;
   }
   lines.forEach(line => queueMessage(nick, line));
 }
@@ -193,9 +224,8 @@ function border() {
 
 function statLine(nick) {
   const stats = game.getPlayerStats(nick);
-  console.log('statLine: stats=' + JSON.stringify(stats));
   if (!stats) return 'NO STATS!';
-  return 'HP: (' + stats.hp + ' of ' + stats.maxhp + ') Fights: ' + stats.fights + ' Gold: ' + game.formatNumber(stats.gold) + ' Gems: ' + stats.gems;
+  return stats.name + ' LVL' + stats.level + ' HP: (' + stats.hp + '/' + stats.maxhp + ') Gold: ' + game.formatNumber(stats.gold) + ' XP: ' + game.formatNumber(stats.xp) + '/' + game.formatNumber(stats.nextXp);
 }
 
 function buildMainMenuLines(nick) {
@@ -243,10 +273,11 @@ function showForest(nick) {
     '',
     w('(L)ook for something to kill'),
     w('(H)ealers hut'),
+    w('(S)tats'),
     w('(R)eturn to town'),
     '',
     statLine(nick),
-    r('The Forest') + w('  (L,H,R,Q) (? for menu)'),
+    r('The Forest') + w('  (L,H,S,R,Q) (? for menu)'),
     ''
   ];
   sendLines(nick, lines);
@@ -254,6 +285,10 @@ function showForest(nick) {
 }
 
 function showStats(nick) {
+  sendNotice(nick, statLine(nick));
+}
+
+function showFullStats(nick) {
   const stats = game.getPlayerStats(nick);
   if (!stats) return;
 
@@ -681,11 +716,21 @@ function processMasterAttack(nick) {
     monster.hp = 0;
     const xpGain = Math.floor(monster.maxhp * 0.5);
     game.addExperience(nick, xpGain);
-    game.incrementSeenMaster(nick);
+    const skillResult = game.incrementSeenMaster(nick);
     
     lines.push(border());
     lines.push('You have defeated ' + monster.name + '!');
     lines.push('You gain ' + g(xpGain) + ' experience!');
+    
+    if (skillResult && skillResult.skillRaised) {
+      lines.push('');
+      lines.push(r('** YOUR CLASS SKILL IS RAISED BY ONE! **'));
+      lines.push('You now have ' + skillResult.currentUses + ' skill uses per reset.');
+    } else if (skillResult && skillResult.lessonsRemaining !== undefined) {
+      lines.push('');
+      lines.push('You need ' + skillResult.lessonsRemaining + ' more lessons to raise skill uses.');
+    }
+    
     lines.push(border());
     lines.push('');
     
@@ -878,6 +923,9 @@ function startPlayerFight(nick, targetIndex) {
     sendImmediate(targetNick, warnMsg);
   }
 
+  const refreshedPlayer = checkAndRefreshSkills(nick);
+  const refreshTime = getSkillRefreshTime(refreshedPlayer);
+  
   const lines = [
     '',
     r('**PLAYER FIGHT**'),
@@ -889,8 +937,13 @@ function startPlayerFight(nick, targetIndex) {
     ''
   ];
 
+  if (refreshTime) {
+    lines.push('Skills refresh in: ' + refreshTime);
+  }
+  
   lines.push(statLine(nick));
-  lines.push(w('(A)ttack (R)un'));
+  const skillText = getSkillMenuText(refreshedPlayer);
+  lines.push(w('(A)ttack ') + skillText + w('(R)un'));
   lines.push('');
 
   sendLines(nick, lines);
@@ -1045,9 +1098,25 @@ function showLogin(nick) {
     player.irc_nick = nick;
     
     const now = Date.now();
+    if (player.fights_timer && now >= player.fights_timer) {
+      player.fights = 20;
+      player.fights_timer = null;
+    }
+    
     if (player.pfights_timer && now >= player.pfights_timer) {
       player.pfights = 3;
       player.pfights_timer = null;
+    }
+    
+    if (!player.usesd) player.usesd = 0;
+    if (!player.usesm) player.usesm = 0;
+    if (!player.usest) player.usest = 0;
+    
+    if (!player.skill_reset_timer || now >= player.skill_reset_timer) {
+      const classType = ['Death Knight', 'Mystic', 'Thief'][player.class] || 'Warrior';
+      const useField = ['usesd', 'usesm', 'usest'][player.class] || 'usesd';
+      player[useField] = (player[useField] || 0) + 1;
+      player.skill_reset_timer = now + (30 * 60 * 1000);
     }
     
     savePlayer(playerNick, player);
@@ -1163,6 +1232,44 @@ function startFight(nick) {
     if (event) {
       clearMessageQueue(nick);
       
+      if (event.type === 'dwarf') {
+        const lines = [
+          '',
+          border(),
+          r('  EVENT: Dwarf Games'),
+          border(),
+          '',
+          '  You stumble upon a group of dwarves gambling in the forest.',
+          '',
+          '  (R)eturn to Forest',
+          ''
+        ];
+        const userState = getState(nick);
+        userState.temp = { nextState: 'dwarf' };
+        sendLines(nick, lines);
+        setState(nick, PLAYER_STATES.FOREST_EVENT);
+        return;
+      }
+      
+      if (event.type === 'hut') {
+        const lines = [
+          '',
+          border(),
+          r('  EVENT: Forest Hut'),
+          border(),
+          '',
+          '  While trekking through the forest, you come upon a small hut.',
+          '',
+          '  (R)eturn to Forest',
+          ''
+        ];
+        const userState = getState(nick);
+        userState.temp = { nextState: 'hut' };
+        sendLines(nick, lines);
+        setState(nick, PLAYER_STATES.FOREST_EVENT);
+        return;
+      }
+      
       const lines = [
         '',
         border(),
@@ -1221,7 +1328,10 @@ function startFight(nick) {
   
   lines.push('');
   lines.push(statLine(nick));
-  lines.push(w('(A)ttack (S)tats (R)un'));
+  
+  const player = loadPlayer(nick);
+  const skillText = getSkillMenuText(player);
+  lines.push(w('(A)ttack ') + skillText + w(' (S)tats (R)un'));
   lines.push('');
   lines.push(r('The Forest') + w('  (A,R,Q) (? for menu)'));
   
@@ -1351,6 +1461,567 @@ function processRun(nick) {
   }
 }
 
+function showDwarfGames(nick) {
+  const stats = game.getPlayerStats(nick);
+  if (!stats) return;
+  
+  const userState = getState(nick);
+  userState.dwarfGame = {
+    playerCards: [],
+    dealerCards: [],
+    playerScore: 0,
+    dealerScore: 0,
+    bet: 0,
+    gameOver: false,
+    result: null
+  };
+  
+  const lines = [
+    '',
+    border(),
+    r('  DWARF GAMES'),
+    border(),
+    '',
+    '  A sly looking dwarf hops out of the brush!',
+    '',
+    '"How about a game, friend?"',
+    '',
+    '  You have ' + g(game.formatNumber(stats.gold)) + ' gold on hand.',
+    '',
+    '  Minimum bet: 200 gold',
+    '  Maximum bet: 5000 gold',
+    '',
+    '  Enter your bet:',
+    ''
+  ];
+  
+  sendLines(nick, lines);
+  setState(nick, PLAYER_STATES.DWARF_BETTING);
+}
+
+function initBlackjackDeck() {
+  const deck = [];
+  const suits = ['Hearts', 'Diamonds', 'Clubs', 'Spades'];
+  const values = ['2', '3', '4', '5', '6', '7', '8', '9', '10', 'J', 'Q', 'K', 'A'];
+  
+  for (const suit of suits) {
+    for (const value of values) {
+      deck.push({ suit, value });
+    }
+  }
+  
+  for (let i = deck.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [deck[i], deck[j]] = [deck[j], deck[i]];
+  }
+  
+  return deck;
+}
+
+function getCardValue(card) {
+  if (card.value === 'A') return 11;
+  if (['K', 'Q', 'J'].includes(card.value)) return 10;
+  return parseInt(card.value);
+}
+
+function calculateScore(cards) {
+  let score = 0;
+  let aces = 0;
+  
+  for (const card of cards) {
+    score += getCardValue(card);
+    if (card.value === 'A') aces++;
+  }
+  
+  while (score > 21 && aces > 0) {
+    score -= 10;
+    aces--;
+  }
+  
+  return score;
+}
+
+function formatCard(card) {
+  return card.value + ' of ' + card.suit;
+}
+
+function showDwarfGameState(nick) {
+  const userState = getState(nick);
+  const gameState = userState.dwarfGame;
+  const stats = game.getPlayerStats(nick);
+  
+  const lines = [
+    '',
+    border(),
+    r('  DWARF BLACKJACK'),
+    border(),
+    '',
+    '  Your hand: ' + gameState.playerCards.map(c => formatCard(c)).join(', '),
+    '  Your score: ' + g(gameState.playerScore),
+    '',
+    '  Dealer\'s hand: ' + gameState.dealerCards.map(c => formatCard(c)).join(', '),
+    '  Dealer score: ' + g(gameState.dealerScore),
+    '',
+    '  Bet: ' + g(game.formatNumber(gameState.bet)) + ' gold',
+    ''
+  ];
+  
+  if (gameState.gameOver) {
+    lines.push(r('  ' + gameState.result));
+    lines.push('');
+    lines.push('  (P)lay Again');
+    lines.push('  (R)eturn to Forest');
+  } else {
+    lines.push(w('(H)it'));
+    lines.push(w('(S)tay'));
+  }
+  lines.push('');
+  
+  sendLines(nick, lines);
+}
+
+function startDwarfRound(nick, bet) {
+  const userState = getState(nick);
+  const stats = game.getPlayerStats(nick);
+  
+  if (bet < 200) {
+    sendNotice(nick, 'Minimum bet is 200 gold!');
+    showDwarfGames(nick);
+    return;
+  }
+  
+  if (bet > 5000) {
+    sendNotice(nick, 'Maximum bet is 5000 gold!');
+    showDwarfGames(nick);
+    return;
+  }
+  
+  if (bet > stats.gold) {
+    sendNotice(nick, 'You don\'t have enough gold!');
+    showDwarfGames(nick);
+    return;
+  }
+  
+  userState.dwarfGame = {
+    deck: initBlackjackDeck(),
+    playerCards: [],
+    dealerCards: [],
+    playerScore: 0,
+    dealerScore: 0,
+    bet: bet,
+    gameOver: false,
+    result: null
+  };
+  
+  userState.dwarfGame.playerCards.push(userState.dwarfGame.deck.pop());
+  userState.dwarfGame.playerCards.push(userState.dwarfGame.deck.pop());
+  userState.dwarfGame.dealerCards.push(userState.dwarfGame.deck.pop());
+  userState.dwarfGame.dealerCards.push(userState.dwarfGame.deck.pop());
+  
+  userState.dwarfGame.playerScore = calculateScore(userState.dwarfGame.playerCards);
+  userState.dwarfGame.dealerScore = calculateScore(userState.dwarfGame.dealerCards);
+  
+  if (userState.dwarfGame.playerScore === 21) {
+    endDwarfRound(nick);
+  } else {
+    setState(nick, PLAYER_STATES.DWARF_GAMES);
+    showDwarfGameState(nick);
+  }
+}
+
+function endDwarfRound(nick) {
+  const userState = getState(nick);
+  const gameState = userState.dwarfGame;
+  
+  while (gameState.dealerScore < 17) {
+    gameState.dealerCards.push(gameState.deck.pop());
+    gameState.dealerScore = calculateScore(gameState.dealerCards);
+  }
+  
+  gameState.gameOver = true;
+  
+  if (gameState.playerScore > 21) {
+    gameState.result = 'BUST! You lose ' + game.formatNumber(gameState.bet) + ' gold!';
+    game.takeGold(nick, gameState.bet);
+  } else if (gameState.dealerScore > 21) {
+    gameState.result = 'Dealer busts! You WIN ' + game.formatNumber(gameState.bet) + ' gold!';
+    game.addGold(nick, gameState.bet);
+  } else if (gameState.playerScore > gameState.dealerScore) {
+    gameState.result = 'You WIN ' + game.formatNumber(gameState.bet) + ' gold!';
+    game.addGold(nick, gameState.bet);
+  } else if (gameState.dealerScore > gameState.playerScore) {
+    gameState.result = 'Dealer wins. You lose ' + game.formatNumber(gameState.bet) + ' gold!';
+    game.takeGold(nick, gameState.bet);
+  } else {
+    gameState.result = 'Push! Your bet is returned.';
+  }
+  
+  showDwarfGameState(nick);
+}
+
+function getSkillMenuText(player) {
+  const classNames = ['Death Knight', 'Mystic', 'Thief'];
+  const className = classNames[player.class] || 'Warrior';
+  const usesField = ['usesd', 'usesm', 'usest'][player.class];
+  const uses = player[usesField] || 0;
+  
+  if (uses > 0) {
+    switch (player.class) {
+      case 0: return w('(D)estroy '); // Death Knight
+      case 1: return w('(M)agic ');   // Mystic
+      case 2: return w('(T)hieve ');  // Thief
+    }
+  }
+  return '';
+}
+
+function checkAndRefreshSkills(nick) {
+  const player = loadPlayer(nick);
+  if (!player) return player;
+  
+  const now = Date.now();
+  if (player.skill_reset_timer && now >= player.skill_reset_timer) {
+    const classType = ['Death Knight', 'Mystic', 'Thief'][player.class] || 'Warrior';
+    const useField = ['usesd', 'usesm', 'usest'][player.class] || 'usesd';
+    player[useField] = (player[useField] || 0) + 1;
+    player.skill_reset_timer = now + (30 * 60 * 1000);
+    savePlayer(nick, player);
+    console.log('[SKILLS] ' + player.name + '\'s skills refreshed! New count: ' + player[useField]);
+  }
+  
+  return player;
+}
+
+function getSkillRefreshTime(player) {
+  if (!player.skill_reset_timer) return '';
+  const now = Date.now();
+  const remaining = Math.max(0, player.skill_reset_timer - now);
+  const mins = Math.floor(remaining / 60000);
+  const secs = Math.floor((remaining % 60000) / 1000);
+  return mins + 'm ' + secs + 's remaining';
+}
+
+function showSkillMenu(nick) {
+  const player = checkAndRefreshSkills(nick);
+  if (!player) return;
+  
+  const refreshTime = getSkillRefreshTime(player);
+  const lines = [
+    '',
+    border(),
+    r('  CLASS SKILLS'),
+    border(),
+    ''
+  ];
+  
+  switch (player.class) {
+    case 0: // Death Knight
+      lines.push('  ** DESTROY **');
+      lines.push('');
+      lines.push('  You perform a devastating power attack!');
+      lines.push('  Damage: Strength x 1.5-5.5 + Weapon Attack x multiplier');
+      lines.push('');
+      lines.push('  Uses remaining: ' + (player.usesd || 0));
+      break;
+      
+    case 1: // Mystic
+      lines.push('  ** MYSTICAL SKILLS **');
+      lines.push('');
+      lines.push('  (P)inch Real Hard - Pinch the enemy (uses 1)');
+      lines.push('  (D)isappear - Escape the fight (uses 4)');
+      lines.push('');
+      lines.push('  Uses remaining: ' + (player.usesm || 0));
+      break;
+      
+    case 2: // Thief
+      lines.push('  ** THIEVING SKILLS **');
+      lines.push('');
+      lines.push('  (S)teal Gold - Steal gold from monster (uses 1)');
+      lines.push('');
+      lines.push('  Uses remaining: ' + (player.usest || 0));
+      break;
+  }
+  
+  if (refreshTime) {
+    lines.push('');
+    lines.push('Skills refresh in: ' + refreshTime);
+  }
+  lines.push('');
+  lines.push(w('(R)eturn to Fight'));
+  lines.push('');
+  
+  sendLines(nick, lines);
+  setState(nick, PLAYER_STATES.SKILL_MENU);
+}
+
+function showFightState(nick) {
+  const userState = getState(nick);
+  const monster = userState.currentMonster;
+  const player = checkAndRefreshSkills(nick);
+  
+  if (!monster || !player) return;
+  
+  const refreshTime = getSkillRefreshTime(player);
+  
+  const lines = [
+    '',
+    r('**FIGHT**'),
+    'You have encountered ' + monster.name + '!!',
+    '',
+    'It is wielding a ' + monster.weapon + '!',
+    '',
+    'Your move.',
+    ''
+  ];
+  
+  if (refreshTime) {
+    lines.push('Skills refresh in: ' + refreshTime);
+  }
+  
+  lines.push('');
+  lines.push(statLine(nick));
+  const skillText = getSkillMenuText(player);
+  lines.push(w('(A)ttack ') + skillText + w('(S)tats (R)un'));
+  lines.push('');
+  lines.push(r('The Forest') + w('  (A,R,Q) (? for menu)'));
+  
+  sendLines(nick, lines);
+  setState(nick, PLAYER_STATES.FIGHT);
+}
+
+function performSkill(nick, skill) {
+  const player = loadPlayer(nick);
+  const userState = getState(nick);
+  const monster = userState.currentMonster;
+  
+  if (!player || !monster) {
+    sendNotice(nick, 'Error: No fight in progress!');
+    return;
+  }
+  
+  switch (player.class) {
+    case 0: // Death Knight - Power Attack
+      if ((player.usesd || 0) <= 0) {
+        sendNotice(nick, 'No Destroy uses remaining!');
+        return;
+      }
+      player.usesd--;
+      
+      const dkMultiplier = random(150, 550) / 100;
+      const weaponAttack = game.getWeaponAttack(player.weapon_num);
+      const dkDamage = Math.floor((player.str + weaponAttack) * dkMultiplier);
+      
+      monster.hp -= dkDamage;
+      savePlayer(nick, player);
+      
+      sendLines(nick, [
+        '',
+        r('** DESTROY **'),
+        'You perform a devastating power attack!',
+        'You hit ' + monster.name + ' for ' + dkDamage + ' damage!',
+        'Uses remaining: ' + player.usesd,
+        ''
+      ]);
+      break;
+      
+    case 1: // Mystic
+      if ((player.usesm || 0) <= 0) {
+        sendNotice(nick, 'No Mystic uses remaining!');
+        return;
+      }
+      
+      if (skill === 'p') { // Pinch
+        player.usesm--;
+        const monsterLevel = Math.floor(monster.str / 10);
+        if (player.level <= monsterLevel) {
+          sendNotice(nick, 'Target level too high for Pinch!');
+          return;
+        }
+        
+        const wpnAttack = game.getWeaponAttack(player.weapon_num);
+        const pinchMultiplier = random(100, 150) / 100;
+        const pinchDamage = Math.floor((player.str + wpnAttack) * pinchMultiplier);
+        monster.hp -= pinchDamage;
+        savePlayer(nick, player);
+        
+        sendLines(nick, [
+          '',
+          r('** PINCH **'),
+          'You whisper the word. You smile as ' + monster.name + ' screams out in pain.',
+          'You hit ' + monster.name + ' for ' + pinchDamage + ' damage!',
+          'Uses remaining: ' + player.usesm,
+          ''
+        ]);
+      }
+      break;
+      
+    case 2: // Thief - Steal
+      if ((player.usest || 0) <= 0) {
+        sendNotice(nick, 'No Thieve uses remaining!');
+        return;
+      }
+      player.usest--;
+      
+      const stealTable = [500, 999, 4000, 7992, 13500, 26973, 32000, 63936, 62500, 124875, 108000, 215784];
+      const levelIndex = Math.min(Math.max(player.level - 1, 0) * 2, stealTable.length - 2);
+      const minSteal = stealTable[levelIndex];
+      const maxSteal = stealTable[levelIndex + 1];
+      const stolen = random(minSteal, maxSteal);
+      
+      player.gold += stolen;
+      monster.gold -= Math.floor(stolen * 0.1);
+      savePlayer(nick, player);
+      
+      sendLines(nick, [
+        '',
+        r('** STEAL **'),
+        'You attempt to steal from ' + monster.name + '!',
+        'You manage to make off with ' + stolen + ' gold!',
+        'Uses remaining: ' + player.usest,
+        ''
+      ]);
+      break;
+  }
+  
+  if (monster.hp <= 0) {
+    monster.hp = 0;
+    const result = game.monsterDefeated(nick, monster);
+    if (result) {
+      showVictory(nick, result);
+    }
+  } else {
+    const stats = game.getPlayerStats(nick);
+    const monsterDamage = Math.floor(Math.random() * (monster.str + 1));
+    const armorDefense = game.getArmorDefense(player.armor_num);
+    const actualDamage = Math.max(1, monsterDamage - armorDefense);
+    
+    const newHp = Math.max(0, stats.hp - actualDamage);
+    game.setPlayerHp(nick, newHp);
+    
+    const lines = [
+      '',
+      monster.name + ' hits you for ' + actualDamage + ' damage!',
+      ''
+    ];
+    
+    if (newHp <= 0) {
+      game.killPlayer(nick, 10, monster.name);
+      lines.push(border());
+      lines.push('You have been defeated by ' + monster.name + '!');
+      lines.push('You are dead for 10 minutes!');
+      lines.push(border());
+      lines.push('');
+      userState.currentMonster = null;
+      userState.state = PLAYER_STATES.NONE;
+      sendLines(nick, lines);
+      return;
+    }
+    
+    lines.push(statLine(nick));
+    lines.push(w('(A)ttack ') + getSkillMenuText(player) + w('(S)tats (R)un'));
+    lines.push('');
+    lines.push(r('The Forest') + w('  (A,R,Q) (? for menu)'));
+    sendLines(nick, lines);
+  }
+}
+
+function showForestHut(nick) {
+  const lines = [
+    '',
+    border(),
+    r('  EVENT: Forest Hut'),
+    border(),
+    '',
+    '  While trekking through the forest, you come upon a small hut.',
+    '',
+    '  (K)nock On The Door',
+    '  (B)ang On The Door',
+    '  (L)eave It Be',
+    ''
+  ];
+  
+  sendLines(nick, lines);
+  setState(nick, PLAYER_STATES.FOREST_HUT);
+}
+
+function showForestHutKnock(nick, player) {
+  const isMystic = player.class === 2;
+  
+  const lines = [
+    '',
+    border()
+  ];
+  
+  if (isMystic) {
+    lines.push(r('  THE OLD MAN\'S TEST'));
+    lines.push(border());
+    lines.push('');
+    lines.push('  You politely knock on the knotted wooden door.');
+    lines.push('');
+    lines.push('  "Watcha doin down there Sonny?!" A wizened old man');
+    lines.push('  looks down from the window.');
+    lines.push('');
+    lines.push('  "Tell ya what! I\'ll give ya a mystical lesson if');
+    lines.push('  you can pass my test!" the old man giggles.');
+    lines.push('');
+    lines.push('  "I\'m thinking of a number between 1 and 100.');
+    lines.push('  I\'ll give ya 6 guesses."');
+    lines.push('');
+    lines.push('  Enter your guess (1-100):');
+    lines.push('');
+    
+    const userState = getState(nick);
+    userState.hutGuess = {
+      answer: random(1, 100),
+      tries: 0,
+      maxTries: 6
+    };
+    
+    sendLines(nick, lines);
+    setState(nick, PLAYER_STATES.FOREST_HUT_GUESS);
+  } else {
+    lines.push(r('  No Answer'));
+    lines.push(border());
+    lines.push('');
+    lines.push('  No one seems to be home.');
+    lines.push('');
+    lines.push('(R)eturn to Forest');
+    lines.push('');
+    
+    sendLines(nick, lines);
+    setState(nick, PLAYER_STATES.FOREST_EVENT);
+  }
+}
+
+function showForestHutBang(nick) {
+  const lines = [
+    '',
+    border(),
+    r('  BANG!'),
+    border(),
+    '',
+    '  You bang on the door loudly!',
+    '',
+    '  Suddenly, the door flies open and a bolt of lightning',
+    '  strikes you! You are knocked unconscious.',
+    '',
+    '  You wake up with just 1 HP remaining!',
+    ''
+  ];
+  
+  const player = loadPlayer(nick);
+  if (player) {
+    player.hp = 1;
+    savePlayer(nick, player);
+  }
+  
+  lines.push('(R)eturn to Forest');
+  lines.push('');
+  
+  sendLines(nick, lines);
+  setState(nick, PLAYER_STATES.FOREST_EVENT);
+}
+
 function handleCommand(nick, cmd, args) {
   const deadCheck = game.isPlayerDead(nick);
   if (deadCheck && deadCheck.dead) {
@@ -1364,6 +2035,12 @@ function handleCommand(nick, cmd, args) {
   
   const userState = getState(nick);
   const state = userState.state;
+  
+  if (messageQueue.has(nick) && userState.displayMode) {
+    userState.pendingCommand = cmd;
+    userState.pendingArgs = args;
+    return;
+  }
   
   if (state !== PLAYER_STATES.FOREST_EVENT) {
     clearMessageQueue(nick);
@@ -1456,7 +2133,7 @@ function handleCommand(nick, cmd, args) {
         case 'k': case 'K': showWeapons(nick); break;
         case 'a': case 'A': showArmor(nick); break;
         case 'h': case 'H': showHealer(nick); break;
-        case 'v': case 'V': showStats(nick); break;
+        case 'v': case 'V': showFullStats(nick); break;
         case 'i': case 'I': showInn(nick); break;
         case 't': case 'T': showTraining(nick); break;
         case 'y': case 'Y': showBank(nick); break;
@@ -1480,6 +2157,7 @@ function handleCommand(nick, cmd, args) {
       switch (cmdLower) {
         case 'l': case 'L': startFight(nick); break;
         case 'h': case 'H': showHealer(nick); break;
+        case 's': case 'S': showStats(nick); break;
         case 'r': case 'R': showMainMenu(nick); break;
         case 'q': case 'Q':
           sendNotice(nick, 'Goodbye! Type !lord to return.');
@@ -1488,8 +2166,84 @@ function handleCommand(nick, cmd, args) {
           break;
         case '?': showForest(nick); break;
         default:
-          sendNotice(nick, 'The Forest - L,H,R,Q');
+          sendNotice(nick, 'The Forest - L,H,S,R,Q');
           break;
+      }
+      break;
+
+    case PLAYER_STATES.FOREST_HUT:
+      const player = loadPlayer(nick);
+      switch (cmdLower) {
+        case 'k':
+          showForestHutKnock(nick, player);
+          break;
+        case 'b':
+          showForestHutBang(nick);
+          break;
+        case 'l':
+          sendNotice(nick, 'You leave well enough alone.');
+          showForest(nick);
+          break;
+        default:
+          sendNotice(nick, 'Forest Hut - K (Knock), B (Bang), L (Leave)');
+          break;
+      }
+      break;
+
+    case PLAYER_STATES.FOREST_HUT_GUESS:
+      const guess = parseInt(cmd);
+      const userState = getState(nick);
+      const hutGuess = userState.hutGuess;
+      
+      if (isNaN(guess) || guess < 1 || guess > 100) {
+        sendNotice(nick, 'Please enter a number between 1 and 100.');
+        return;
+      }
+      
+      hutGuess.tries++;
+      
+      const lines = [''];
+      
+      if (guess === hutGuess.answer) {
+        lines.push(border());
+        lines.push(r('  ** YOU PASSED THE TEST! **'));
+        lines.push(border());
+        lines.push('');
+        lines.push('  "That\'s right! You read my mind!"');
+        lines.push('  The old man cheers with joy!');
+        lines.push('');
+        lines.push('  ** YOUR CLASS SKILL IS RAISED BY ONE! **');
+        lines.push('');
+        
+        sendLines(nick, lines);
+        sendNotice(nick, 'You return to the forest, wiser than before.');
+        showForest(nick);
+      } else if (hutGuess.tries >= hutGuess.maxTries) {
+        lines.push(border());
+        lines.push(r('  ** YOU FAILED THE TEST **'));
+        lines.push(border());
+        lines.push('');
+        lines.push('  "No, no NO! The number was ' + hutGuess.answer + '!"');
+        lines.push('  He slams his window shut in disappointment.');
+        lines.push('');
+        
+        sendLines(nick, lines);
+        sendNotice(nick, 'You return to the forest, wiser than before.');
+        showForest(nick);
+      } else if (guess < hutGuess.answer) {
+        lines.push('  "The number is higher than that!"');
+        lines.push('  Tries remaining: ' + (hutGuess.maxTries - hutGuess.tries));
+        lines.push('');
+        lines.push('  Enter your guess (1-100):');
+        lines.push('');
+        sendLines(nick, lines);
+      } else {
+        lines.push('  "The number is lower than that!"');
+        lines.push('  Tries remaining: ' + (hutGuess.maxTries - hutGuess.tries));
+        lines.push('');
+        lines.push('  Enter your guess (1-100):');
+        lines.push('');
+        sendLines(nick, lines);
       }
       break;
 
@@ -1497,11 +2251,21 @@ function handleCommand(nick, cmd, args) {
       switch (cmdLower) {
         case 'r': case 'R':
           flushQueue(nick);
-          userState.temp = {};
-          showForest(nick);
+          {
+            const us = getState(nick);
+            const nextState = us.temp.nextState;
+            us.temp = {};
+            if (nextState === 'dwarf') {
+              showDwarfGames(nick);
+            } else if (nextState === 'hut') {
+              showForestHut(nick);
+            } else {
+              showForest(nick);
+            }
+          }
           break;
         default:
-          sendNotice(nick, 'Press R to return to the forest.');
+          sendNotice(nick, 'Press R to continue.');
           break;
       }
       break;
@@ -1513,6 +2277,18 @@ function handleCommand(nick, cmd, args) {
         case '':
           processAttack(nick);
           break;
+        case 'd': case 'D':
+        case 'm': case 'M':
+        case 't': case 'T':
+          const p = loadPlayer(nick);
+          if (p && ((p.class === 0 && cmdLower === 'd') || 
+                     (p.class === 1 && cmdLower === 'm') || 
+                     (p.class === 2 && cmdLower === 't'))) {
+            showSkillMenu(nick);
+          } else {
+            sendNotice(nick, 'Forest Fight - A,R,Q');
+          }
+          break;
         case 'r': case 'R':
           processRun(nick);
           break;
@@ -1522,6 +2298,39 @@ function handleCommand(nick, cmd, args) {
           break;
         default:
           sendNotice(nick, 'Forest Fight - A,R,Q');
+          break;
+      }
+      break;
+      
+    case PLAYER_STATES.SKILL_MENU:
+      const skillPlayer = loadPlayer(nick);
+      switch (cmdLower) {
+        case 'r': case 'R':
+          showFightState(nick);
+          break;
+        case 'd':
+          if (skillPlayer.class === 0) {
+            performSkill(nick, 'd');
+          } else {
+            sendNotice(nick, 'Invalid skill!');
+          }
+          break;
+        case 'p':
+          if (skillPlayer.class === 1) {
+            performSkill(nick, 'p');
+          } else {
+            sendNotice(nick, 'Invalid skill!');
+          }
+          break;
+        case 's':
+          if (skillPlayer.class === 2) {
+            performSkill(nick, 's');
+          } else {
+            sendNotice(nick, 'Invalid skill!');
+          }
+          break;
+        default:
+          sendNotice(nick, 'Invalid skill choice!');
           break;
       }
       break;
@@ -1874,6 +2683,17 @@ function handleCommand(nick, cmd, args) {
         showSlaughter(nick);
         break;
       }
+      if (cmdLower === 'd' || cmdLower === 'm' || cmdLower === 't') {
+        const p = loadPlayer(nick);
+        if (p && ((p.class === 0 && cmdLower === 'd') || 
+                   (p.class === 1 && cmdLower === 'm') || 
+                   (p.class === 2 && cmdLower === 't'))) {
+          showSkillMenu(nick);
+        } else {
+          sendNotice(nick, 'Player Fight - A,R');
+        }
+        break;
+      }
       sendNotice(nick, 'Player Fight - A,R');
       break;
 
@@ -1886,6 +2706,37 @@ function handleCommand(nick, cmd, args) {
         break;
       }
       sendNotice(nick, 'Press R to return to town');
+      break;
+
+    case PLAYER_STATES.DWARF_BETTING:
+      const bet = parseInt(cmd);
+      if (!isNaN(bet) && bet > 0) {
+        startDwarfRound(nick, bet);
+      } else {
+        sendNotice(nick, 'Please enter a valid bet amount.');
+        showDwarfGames(nick);
+      }
+      break;
+
+    case PLAYER_STATES.DWARF_GAMES:
+      if (cmdLower === 'h') {
+        const userState = getState(nick);
+        userState.dwarfGame.playerCards.push(userState.dwarfGame.deck.pop());
+        userState.dwarfGame.playerScore = calculateScore(userState.dwarfGame.playerCards);
+        
+        if (userState.dwarfGame.playerScore > 21) {
+          endDwarfRound(nick);
+        } else {
+          showDwarfGameState(nick);
+        }
+      } else if (cmdLower === 's') {
+        endDwarfRound(nick);
+      } else if (cmdLower === 'r') {
+        userState.currentMonster = null;
+        showForest(nick);
+      } else {
+        sendNotice(nick, 'Dwarf Blackjack - H (Hit), S (Stay), R (Return)');
+      }
       break;
   }
 }
@@ -1910,6 +2761,30 @@ client.addListener('registered', () => {
       console.log('Joined ' + channel);
     }
   });
+  
+  const hourlyForestFightBonus = () => {
+    const allPlayers = getAllPlayers();
+    let bonusCount = 0;
+    allPlayers.forEach(player => {
+      if (player.irc_nick) {
+        const p = loadPlayer(player.irc_nick);
+        if (p) {
+          p.fights = Math.min(p.fights + 20, config.maxFightsPerDay);
+          savePlayer(player.irc_nick, p);
+          bonusCount++;
+        }
+      }
+    });
+    console.log('[HOURLY] Granted +20 forest fights to ' + bonusCount + ' players');
+  };
+  
+  setInterval(hourlyForestFightBonus, 60 * 60 * 1000);
+  const now = new Date();
+  const msUntilNextHour = (60 - now.getMinutes()) * 60 * 1000 - now.getSeconds() * 1000;
+  setTimeout(() => {
+    hourlyForestFightBonus();
+    setInterval(hourlyForestFightBonus, 60 * 60 * 1000);
+  }, msUntilNextHour);
 });
 
 client.addListener('pm', (nick, text) => {

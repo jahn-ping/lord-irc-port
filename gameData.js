@@ -239,6 +239,7 @@ export const defaultPlayer = {
   xp: 1,
   fights: 500,
   pfights: 3,
+  pfights_timer: 0,
   dead: 0,
   charm: 1,
   horse: 0,
@@ -260,7 +261,8 @@ export const defaultPlayer = {
   mastered2: -1,
   mastered3: -1,
   baraks_visited_today: 0,
-  killed_by: ''
+  killed_by: '',
+  skill_reset_timer: 0
 };
 
 export const forestEvents = [
@@ -323,5 +325,23 @@ export const forestEvents = [
     chance: 5,
     message: 'A lost traveler asks for directions. In gratitude, they give you some gold.',
     type: 'traveler'
+  },
+  {
+    name: 'Dwarf Games',
+    chance: 5,
+    message: 'A sly looking dwarf hops out of the brush! "How about a game, friend?"',
+    type: 'dwarf'
+  },
+  {
+    name: 'Forest Hut',
+    chance: 3,
+    message: 'While trekking through the forest, you come upon a small hut.',
+    type: 'hut'
+  },
+  {
+    name: 'Wierd Event',
+    chance: 2,
+    message: 'You hear the voice of angels singing.',
+    type: 'wierd'
   }
 ];
