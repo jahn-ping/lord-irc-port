@@ -3042,15 +3042,19 @@ client.addListener('registered', () => {
   const minuteForestFightBonus = () => {
     const allPlayers = getAllPlayers();
     let bonusCount = 0;
+    let underCapCount = 0;
     allPlayers.forEach(player => {
       const p = loadPlayer(player.nick);
-      if (p && p.fights < config.maxFightsPerDay) {
-        p.fights = Math.min(p.fights + 1, config.maxFightsPerDay);
-        savePlayer(player.nick, p);
-        bonusCount++;
+      if (p) {
+        underCapCount++;
+        if (p.fights < config.maxFightsPerDay) {
+          p.fights = Math.min(p.fights + 1, config.maxFightsPerDay);
+          savePlayer(player.nick, p);
+          bonusCount++;
+        }
       }
     });
-    console.log('[MINUTE] Granted +1 forest fight to ' + bonusCount + ' players');
+    console.log('[MINUTE] ' + bonusCount + '/' + underCapCount + ' players granted +1 fight (max ' + config.maxFightsPerDay + ')');
   };
   
   setInterval(minuteForestFightBonus, 60 * 1000);
