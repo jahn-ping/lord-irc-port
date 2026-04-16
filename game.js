@@ -64,11 +64,19 @@ export function getPlayerStats(nick) {
   const weapon = weapons[player.weapon_num - 1];
   const armor = armors[player.armor_num - 1];
   const nextXp = getXpNeeded(player.level + 1);
+  const weaponAttack = weapon ? weapon.attack : 0;
+  const armorDefense = armor ? armor.defense : 0;
+  const totalAttack = player.str + weaponAttack;
+  const totalDefense = player.def + armorDefense;
   
   return {
     ...player,
     weapon: weapon ? weapon.name : 'Fists',
+    weaponAttack: weaponAttack,
     armor: armor ? armor.name : 'None',
+    armorDefense: armorDefense,
+    str: totalAttack,
+    def: totalDefense,
     className: classNames[player.class],
     nextXp,
     xpPercent: Math.min(100, Math.floor((player.xp / nextXp) * 100))

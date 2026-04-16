@@ -863,7 +863,8 @@ function showSlaughter(nick) {
   const players = game.getPlayerList();
   const otherPlayers = players.filter(p => 
     p.name.toLowerCase() !== nick.toLowerCase() && 
-    p.dead === 0
+    p.dead === 0 &&
+    p.stayinn !== 1
   );
 
   const lines = [
@@ -894,7 +895,8 @@ function startPlayerFight(nick, targetIndex) {
   const players = game.getPlayerList();
   const onlinePlayers = players.filter(p => 
     p.name.toLowerCase() !== nick.toLowerCase() && 
-    p.dead === 0
+    p.dead === 0 &&
+    p.stayinn !== 1
   );
 
   if (targetIndex < 1 || targetIndex > onlinePlayers.length) {
