@@ -1060,28 +1060,31 @@ export function resurrectPlayer(nick) {
 export function incrementSeenMaster(nick) {
   const player = loadPlayer(nick);
   if (!player) return false;
-  
+
   player.seen_master = (player.seen_master || 0) + 1;
-  
+
   if (!player.training_needed) player.training_needed = 0;
   player.training_needed--;
-  
+
   const result = {
     seen_master: player.seen_master,
     training_needed: player.training_needed
   };
-  
+
   if (player.training_needed <= 0) {
     player.training_needed = 3;
-    
+
+    player.skill_charges_max = (player.skill_charges_max || 0) + 1;
+    player.skill_charges_active = player.skill_charges_max;
+
     const useField = ['usesd', 'usesm', 'usest'][player.class] || 'usesd';
     player[useField] = (player[useField] || 0) + 1;
     result.skillRaised = true;
-    result.currentUses = player[useField];
+    result.currentUses = player.skill_charges_max;
   } else {
     result.lessonsRemaining = player.training_needed;
   }
-  
+
   savePlayer(nick, player);
   return result;
 }

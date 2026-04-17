@@ -1665,12 +1665,18 @@ function processMasterAttack(nick) {
   const lines = [];
 
   if (userState.enemyFirstStrike) {
-    const monsterDamage = Math.floor(Math.random() * (monster.str + 1)) + (monster.attack || 0);
-    const armorDefense = game.getArmorDefense ? game.getArmorDefense(stats.armor_num) : 0;
-    const actualDamage = Math.max(1, monsterDamage - armorDefense);
+    let actualDamage;
+    if (userState.isShielded) {
+      actualDamage = 0;
+      lines.push('Your shield absorbs ' + monster.name + '\'s attack!');
+      userState.isShielded = false;
+    } else {
+      const monsterDamage = Math.floor(Math.random() * (monster.str + 1)) + (monster.attack || 0);
+      const armorDefense = game.getArmorDefense ? game.getArmorDefense(stats.armor_num) : 0;
+      actualDamage = Math.max(1, monsterDamage - armorDefense);
+      lines.push(monster.name + ' attacks first for ' + g(actualDamage) + ' damage!');
+    }
     const newPlayerHp = Math.max(0, stats.hp - actualDamage);
-
-    lines.push(monster.name + ' attacks first for ' + g(actualDamage) + ' damage!');
 
     if (newPlayerHp <= 0) {
       lines.push('You have been defeated by ' + monster.name + '!');
@@ -1699,11 +1705,11 @@ function processMasterAttack(nick) {
     game.addExperience(nick, xpGain);
     const levelUp = game.checkLevelUp(nick);
     const skillResult = game.incrementSeenMaster(nick);
-    
+
     lines.push(border());
     lines.push('You have defeated ' + monster.name + '!');
     lines.push('You gain ' + g(xpGain) + ' experience!');
-    
+
     if (levelUp && levelUp.levelUp) {
       lines.push('');
       lines.push(r('********** LEVEL UP! **********'));
@@ -1711,7 +1717,7 @@ function processMasterAttack(nick) {
       lines.push('HP: ' + g(levelUp.gains.hp) + '  Str: ' + g(levelUp.gains.str) + '  Def: ' + g(levelUp.gains.def));
       lines.push(r('*******************************'));
     }
-    
+
     if (skillResult && skillResult.skillRaised) {
       lines.push('');
       lines.push(r('** YOUR CLASS SKILL IS RAISED BY ONE! **'));
@@ -1720,10 +1726,10 @@ function processMasterAttack(nick) {
       lines.push('');
       lines.push('You need ' + skillResult.lessonsRemaining + ' more lessons to raise skill uses.');
     }
-    
+
     lines.push(border());
     lines.push('');
-    
+
     userState.currentMonster = null;
     flushQueue(nick);
     sendLines(nick, lines);
@@ -1731,34 +1737,42 @@ function processMasterAttack(nick) {
     return;
   }
 
-  const monsterDamage = Math.floor(Math.random() * (monster.str + 1)) + (monster.attack || 0);
-  const armorDefense = game.getArmorDefense ? game.getArmorDefense(stats.armor_num) : 0;
-  const actualDamage = Math.max(1, monsterDamage - armorDefense);
-  const newPlayerHp = Math.max(0, stats.hp - actualDamage);
+  let monsterDamageMsg;
+  if (userState.isShielded) {
+    monsterDamageMsg = 'Your shield absorbs the attack!';
+    userState.isShielded = false;
+  } else {
+    const monsterDamage = Math.floor(Math.random() * (monster.str + 1)) + (monster.attack || 0);
+    const armorDefense = game.getArmorDefense ? game.getArmorDefense(stats.armor_num) : 0;
+    const actualDamage = Math.max(1, monsterDamage - armorDefense);
+    const newPlayerHp = Math.max(0, stats.hp - actualDamage);
+    monsterDamageMsg = monster.name + ' hits you for ' + g(actualDamage) + ' damage!';
 
-  lines.push(monster.name + ' hits you for ' + g(actualDamage) + ' damage!');
+    if (newPlayerHp <= 0) {
+      game.killPlayer(nick, 10, 'Master: ' + monster.name);
 
-  if (newPlayerHp <= 0) {
-    game.killPlayer(nick, 10, 'Master: ' + monster.name);
-    
-    lines.push(border());
-    lines.push('You have been defeated by ' + monster.name + '!');
-    lines.push('You are dead for 10 minutes!');
-    border()
-    lines.push('');
-    
-    userState.currentMonster = null;
-    userState.state = PLAYER_STATES.NONE;
-    sendLines(nick, lines);
-    return;
+      lines.push(border());
+      lines.push('You have been defeated by ' + monster.name + '!');
+      lines.push('You are dead for 10 minutes!');
+      border()
+      lines.push('');
+
+      userState.currentMonster = null;
+      userState.state = PLAYER_STATES.NONE;
+      sendLines(nick, lines);
+      return;
+    }
   }
 
-  game.setPlayerHp(nick, newPlayerHp);
-  
+  lines.push(monsterDamageMsg);
   lines.push('');
-  lines.push('HP: (' + g(newPlayerHp) + ' of ' + g(stats.maxhp) + ') - Master HP: (' + g(monster.hp) + ' of ' + g(monster.maxhp) + ')');
+
+  game.setPlayerHp(nick, stats.hp);
+  lines.push('HP: (' + g(stats.hp) + ' of ' + g(stats.maxhp) + ') - Master HP: (' + g(monster.hp) + ' of ' + g(monster.maxhp) + ')');
   lines.push('');
-  lines.push(w('(A)ttack ') + getSkillMenuText(stats) + w('(R)un'));
+  lines.push(w('(A)ttack (R)un'));
+  lines.push('');
+  lines.push(r('Fight Master') + w('  (A,R) (? for menu)'));
   lines.push('');
 
   flushQueue(nick);
@@ -1970,12 +1984,18 @@ function processPlayerAttack(nick) {
   const lines = [];
 
   if (userState.enemyFirstStrike) {
-    const monsterDamage = Math.floor(Math.random() * (monster.str + 1)) + (monster.attack || 0);
-    const armorDefense = game.getArmorDefense ? game.getArmorDefense(stats.armor_num) : 0;
-    const actualDamage = Math.max(1, monsterDamage - armorDefense);
+    let actualDamage;
+    if (userState.isShielded) {
+      actualDamage = 0;
+      lines.push('Your shield absorbs ' + monster.name + '\'s attack!');
+      userState.isShielded = false;
+    } else {
+      const monsterDamage = Math.floor(Math.random() * (monster.str + 1)) + (monster.attack || 0);
+      const armorDefense = game.getArmorDefense ? game.getArmorDefense(stats.armor_num) : 0;
+      actualDamage = Math.max(1, monsterDamage - armorDefense);
+      lines.push(monster.name + ' attacks first for ' + g(actualDamage) + ' damage!');
+    }
     const newPlayerHp = Math.max(0, stats.hp - actualDamage);
-
-    lines.push(monster.name + ' attacks first for ' + g(actualDamage) + ' damage!');
 
     if (newPlayerHp <= 0) {
       game.killPlayer(nick, 10, 'Player: ' + monster.name);
@@ -2014,7 +2034,7 @@ function processPlayerAttack(nick) {
 
   if (monster.hp <= 0) {
     monster.hp = 0;
-    
+
     const goldStolen = Math.floor(Math.random() * monster.gold) + 10;
     const player = loadPlayer(nick);
     const winnerChar = loadPlayer(nick);
@@ -2031,17 +2051,17 @@ function processPlayerAttack(nick) {
       targetPlayer.hp = 1;
       savePlayer(loserNick, targetPlayer);
     }
-    
+
     lines.push(border());
     lines.push('You have defeated ' + monster.name + '!');
     lines.push('You steal ' + g(goldStolen) + ' gold!');
     lines.push(border());
     lines.push('');
-    
+
     const loserChar = targetPlayer;
-    
+
     console.log('[DEBUG WIN] monster.name=' + monster.name + ', loserNick=' + loserNick + ', loserChar=' + (loserChar ? loserChar.name : 'null'));
-    
+
     if (loserNick && loserChar) {
       const loserMsg = 'SLAUGHTER RESULT: You were defeated by ' + (winnerChar?.name || nick) + '! They stole ' + goldStolen + ' gold. You now have ' + loserChar.gold + ' gold left.';
       console.log('[SLAUGHTER] -> ' + loserNick + ': ' + loserMsg);
@@ -2049,12 +2069,12 @@ function processPlayerAttack(nick) {
     } else {
       console.log('[SLAUGHTER] Failed to send loser notice: loserNick=' + loserNick + ', loserChar=' + (loserChar ? 'exists' : 'null'));
     }
-    
+
     const winnerNick = nick;
     const winnerMsg = 'SLAUGHTER RESULT: You defeated ' + monster.name + '! You stole ' + goldStolen + ' gold! You now have ' + winnerChar.gold + ' gold.';
     console.log('[SLAUGHTER] -> ' + winnerNick + ': ' + winnerMsg);
     sendDirectNotice(winnerNick, winnerMsg);
-    
+
     userState.currentMonster = null;
     flushQueue(nick);
     sendLines(nick, lines);
@@ -2062,44 +2082,49 @@ function processPlayerAttack(nick) {
     return;
   }
 
-  const monsterDamage = Math.floor(Math.random() * (monster.str + 1)) + (monster.attack || 0);
-  const armorDefense = game.getArmorDefense ? game.getArmorDefense(stats.armor_num) : 0;
-  const actualDamage = Math.max(1, monsterDamage - armorDefense);
-  const newPlayerHp = Math.max(0, stats.hp - actualDamage);
+  let monsterDamageMsg;
+  if (userState.isShielded) {
+    monsterDamageMsg = 'Your shield absorbs the attack!';
+    userState.isShielded = false;
+  } else {
+    const monsterDamage = Math.floor(Math.random() * (monster.str + 1)) + (monster.attack || 0);
+    const armorDefense = game.getArmorDefense ? game.getArmorDefense(stats.armor_num) : 0;
+    const actualDamage = Math.max(1, monsterDamage - armorDefense);
+    const newPlayerHp = Math.max(0, stats.hp - actualDamage);
+    monsterDamageMsg = monster.name + ' hits you for ' + g(actualDamage) + ' damage!';
 
-  lines.push(monster.name + ' hits you for ' + g(actualDamage) + ' damage!');
+    if (newPlayerHp <= 0) {
+      game.killPlayer(nick, 10, 'Player: ' + monster.name);
 
-  if (newPlayerHp <= 0) {
-    game.killPlayer(nick, 10, 'Player: ' + monster.name);
-    
-    lines.push(border());
-    lines.push('You have been defeated by ' + monster.name + '!');
-    lines.push('You are dead for 10 minutes!');
-    lines.push(border());
-    lines.push('');
-    
-    const victimChar = loadPlayer(nick);
-    const attackerNick = getPlayerNick(monster.name);
-    
-    if (attackerNick) {
-      const winMsg = 'You defeated ' + (victimChar?.name || nick) + '! They are dead for 10 minutes!';
-      console.log('[SLAUGHTER] -> ' + attackerNick + ': ' + winMsg);
-      sendDirectNotice(attackerNick, winMsg);
-    } else {
-      console.log('[SLAUGHTER] Failed to send winner notice: attackerNick=' + attackerNick + ', monster.name=' + monster.name);
+      lines.push(border());
+      lines.push('You have been defeated by ' + monster.name + '!');
+      lines.push('You are dead for 10 minutes!');
+      lines.push(border());
+      lines.push('');
+
+      const victimChar = loadPlayer(nick);
+      const attackerNick = getPlayerNick(monster.name);
+
+      if (attackerNick) {
+        const winMsg = 'You defeated ' + (victimChar?.name || nick) + '! They are dead for 10 minutes!';
+        console.log('[SLAUGHTER] -> ' + attackerNick + ': ' + winMsg);
+        sendDirectNotice(attackerNick, winMsg);
+      } else {
+        console.log('[SLAUGHTER] Failed to send winner notice: attackerNick=' + attackerNick + ', monster.name=' + monster.name);
+      }
+
+      userState.currentMonster = null;
+      userState.state = PLAYER_STATES.NONE;
+      sendLines(nick, lines);
+      return;
     }
-    
-    userState.currentMonster = null;
-    userState.state = PLAYER_STATES.NONE;
-    sendLines(nick, lines);
-    return;
   }
 
-  game.setPlayerHp(nick, newPlayerHp);
-  
-  const player = loadPlayer(nick);
+  lines.push(monsterDamageMsg);
   lines.push('');
-  lines.push('HP: (' + g(newPlayerHp) + ' of ' + g(stats.maxhp) + ') - ' + monster.name + ' HP: (' + g(monster.hp) + ' of ' + g(monster.maxhp) + ')');
+
+  const player = loadPlayer(nick);
+  lines.push('HP: (' + g(stats.hp) + ' of ' + g(stats.maxhp) + ') - ' + monster.name + ' HP: (' + g(monster.hp) + ' of ' + g(monster.maxhp) + ')');
   lines.push('');
   const skillText = getSkillMenuText(player);
   lines.push(w('(A)ttack ') + skillText + w('(R)un'));
@@ -2109,7 +2134,7 @@ function processPlayerAttack(nick) {
   const helpKeys = hasSkill ? '(A,' + skillKeys[player.class] + ',R) (? for menu)' : '(A,R) (? for menu)';
   lines.push(r('Player Fight') + w('  ' + helpKeys));
   lines.push('');
- 
+
   flushQueue(nick);
   sendLines(nick, lines);
 }
@@ -2444,12 +2469,21 @@ function processAttack(nick) {
   const lines = [];
 
   if (userState.enemyFirstStrike && !monster.isPlayer) {
-    const monsterDamage = Math.floor(Math.random() * (monster.str + 1));
-    const armorDefense = game.getArmorDefense ? game.getArmorDefense(stats.armor_num) : 0;
-    const actualDamage = Math.max(1, monsterDamage - armorDefense);
+    let actualDamage;
+    if (userState.isShielded) {
+      actualDamage = 0;
+      lines.push('Your shield absorbs ' + monster.name + '\'s attack!');
+      userState.isShielded = false;
+    } else {
+      const monsterDamage = Math.floor(Math.random() * (monster.str + 1));
+      const armorDefense = game.getArmorDefense ? game.getArmorDefense(stats.armor_num) : 0;
+      actualDamage = Math.max(1, monsterDamage - armorDefense);
+    }
     const newPlayerHp = Math.max(0, stats.hp - actualDamage);
 
-    lines.push(monster.name + ' attacks first for ' + g(actualDamage) + ' damage!');
+    if (actualDamage > 0) {
+      lines.push(monster.name + ' attacks first for ' + g(actualDamage) + ' damage!');
+    }
 
     if (newPlayerHp <= 0) {
       game.killPlayer(nick, 10, 'Monster: ' + monster.name);
@@ -2467,7 +2501,7 @@ function processAttack(nick) {
   }
 
   const result = game.attackMonster(nick, monster.hp, monster.str, monster.maxhp);
-  
+
   if (result.error) {
     sendNotice(nick, result.error);
     return;
@@ -2477,41 +2511,56 @@ function processAttack(nick) {
     lines.push(r('**POWER MOVE**'));
     lines.push('');
   }
-  
+
   lines.push('You hit ' + monster.name + ' for ' + g(result.damage) + ' damage!');
-  
+
   if (result.victory) {
     const reward = game.winMonsterFight(nick, monster);
-    
+
     const victoryMsg = 'Killed ' + monster.name + '! Got ' + g(game.formatNumber(reward.gold)) + ' gold + ' + g(reward.xp) + ' XP' + (reward.gem ? ' +GEM' : '');
     sendImmediate(nick, victoryMsg);
-    
+
     if (reward.levelUp && reward.levelUp.levelUp) {
       sendImmediate(nick, r('*** LEVEL UP! Now LVL' + reward.levelUp.newLevel + ' - HP: ' + reward.levelUp.gains.hp + ' Str: ' + reward.levelUp.gains.str + ' Def: ' + reward.levelUp.gains.def + ' ***'));
     }
-    
+
     userState.currentMonster = null;
     showForest(nick);
     return;
   } else if (result.defeat) {
     const loss = game.loseMonsterFight(nick, monster.gold, monster.name);
-    
+
     sendImmediate(nick, 'DEAD! Killed by ' + monster.name + ' - Lost ' + g(game.formatNumber(loss.lostGold)) + ' gold - Dead for 10 minutes!');
-    
+
     userState.currentMonster = null;
     clearState(nick);
     return;
   } else {
     monster.hp = result.monsterHp;
-    
-    lines.push(monster.name + ' hits you for ' + g(result.monsterDamage) + ' damage!');
+
+    let monsterDamageMsg;
+    if (userState.isShielded) {
+      monsterDamageMsg = 'Your shield absorbs the attack!';
+      userState.isShielded = false;
+    } else {
+      monsterDamageMsg = monster.name + ' hits you for ' + g(result.monsterDamage) + ' damage!';
+    }
+    lines.push(monsterDamageMsg);
     lines.push('');
     lines.push(statLine(nick));
     lines.push('HP: (' + g(result.playerHp) + ' of ' + g(game.getPlayerStats(nick).maxhp) + ') - Monster HP: (' + g(result.monsterHp) + ' of ' + g(monster.maxhp) + ')');
     lines.push('');
-    lines.push(w('(A)ttack (S)tats (R)un'));
+
+    const currentPlayer = loadPlayer(nick);
+    const hasSkill = currentPlayer && currentPlayer.skill_charges_max > 0 && currentPlayer.skill_charges_active > 0;
+    if (hasSkill) {
+      const skillText = getSkillMenuText(player);
+      lines.push(w('(A)ttack ') + skillText + w(' (S)tats (R)un'));
+    } else {
+      lines.push(w('(A)ttack (S)tats (R)un'));
+    }
     lines.push('');
-    
+
     setState(nick, PLAYER_STATES.FIGHT);
     {
       const us = getState(nick);
@@ -2834,13 +2883,13 @@ function showMasterFightState(nick) {
 
 function getSkillMenuText(player) {
   if (!player.skill_charges_max || player.skill_charges_active <= 0) return '';
-  
-  const chargeStatus = ' (' + player.skill_charges_active + '/' + player.skill_charges_max + ')';
-  
+
+  const usesStatus = ' (' + player.skill_charges_active + '/' + player.skill_charges_max + ')';
+
   switch (player.class) {
-    case 0: return w('(D)estroy ' + chargeStatus + ' '); // Death Knight
-    case 1: return w('(M)agic ' + chargeStatus + ' ');   // Mystic
-    case 2: return w('(T)hieve ' + chargeStatus + ' ');  // Thief
+    case 0: return w('(D)estroy' + usesStatus + ' '); // Death Knight
+    case 1: return w('(P)owers' + usesStatus + ' '); // Mystic
+    case 2: return w('(S)teal' + usesStatus + ' ');   // Thief
   }
   return '';
 }
@@ -2896,10 +2945,33 @@ function getSkillChargeTimers(player) {
   return timers;
 }
 
+function getMysticSkill(skillLevel) {
+  const skills = [
+    { minLevel: 1, name: 'Pinch Real Hard', key: 'P', desc: 'Pinch the enemy hard', nextName: 'Disappear', nextLevel: 4 },
+    { minLevel: 4, name: 'Disappear', key: 'D', desc: 'Escape to forest', nextName: 'Heat Wave', nextLevel: 8 },
+    { minLevel: 8, name: 'Heat Wave', key: 'H', desc: 'Fire damage to enemy', nextName: 'Light Shield', nextLevel: 12 },
+    { minLevel: 12, name: 'Light Shield', key: 'L', desc: 'Shield from next attack', nextName: 'Shatter', nextLevel: 16 },
+    { minLevel: 16, name: 'Shatter', key: 'S', desc: 'Heavy damage', nextName: 'Mind Heal', nextLevel: 20 },
+    { minLevel: 20, name: 'Mind Heal', key: 'M', desc: 'Heal yourself completely', nextName: 'MAXED', nextLevel: 0 }
+  ];
+
+  for (let i = skills.length - 1; i >= 0; i--) {
+    if (skillLevel >= skills[i].minLevel) {
+      return skills[i];
+    }
+  }
+  return skills[0];
+}
+
+function getMysticKey(skillLevel) {
+  const skill = getMysticSkill(skillLevel);
+  return skill.key.toLowerCase();
+}
+
 function showSkillMenu(nick) {
   const player = checkAndRefreshSkills(nick);
   if (!player) return;
-  
+
   const lines = [
     '',
     border(),
@@ -2912,7 +2984,7 @@ function showSkillMenu(nick) {
     lines.push('  You have not learned any skills yet.');
     lines.push('  Train with masters to learn class skills.');
   } else {
-    const skillKeys = { 0: 'D', 1: 'M', 2: 'T' };
+    const skillKeys = { 0: 'D', 1: 'P', 2: 'S' };
     const skillNames = { 0: 'Destroy', 1: 'Magic', 2: 'Steal' };
     
     switch (player.class) {
@@ -2922,19 +2994,31 @@ function showSkillMenu(nick) {
         lines.push('  You perform a devastating power attack!');
         lines.push('  Damage: Strength x 1.5-5.5 + Weapon Attack x multiplier');
         lines.push('');
-        lines.push('  Charges: ' + player.skill_charges_active + '/' + player.skill_charges_max);
+        lines.push('  Uses Today: ' + player.skill_charges_active + '/' + player.skill_charges_max);
         lines.push('');
-        lines.push('  Press (D) to use Destroy');
+        lines.push(r('Choose skill (D,R) (? for menu)'));
+        lines.push('');
         break;
         
       case 1: // Mystic
-        lines.push('  ** MYSTICAL SKILLS **');
-        lines.push('');
-        lines.push('  (P)inch Real Hard - Pinch the enemy');
-        lines.push('');
-        lines.push('  Charges: ' + player.skill_charges_active + '/' + player.skill_charges_max);
-        lines.push('');
-        lines.push('  Press (P) to use Pinch');
+        {
+          const skillLevel = player.usesm || 0;
+          const skillInfo = getMysticSkill(skillLevel);
+
+          lines.push('  ** MYSTICAL SKILLS **');
+          lines.push('');
+          lines.push('  Your skill level: ' + skillLevel);
+          lines.push('');
+          lines.push('  Current Skill: ' + r(skillInfo.name));
+          lines.push('  ' + skillInfo.desc);
+          lines.push('');
+          lines.push('  Next Skill: ' + skillInfo.nextName + ' at level ' + skillInfo.nextLevel);
+          lines.push('');
+          lines.push('  Uses Today: ' + player.skill_charges_active + '/' + player.skill_charges_max);
+          lines.push('');
+          lines.push(r('Choose skill (' + skillInfo.key + ',R) (? for menu)'));
+          lines.push('');
+        }
         break;
         
       case 2: // Thief
@@ -2942,9 +3026,10 @@ function showSkillMenu(nick) {
         lines.push('');
         lines.push('  (S)teal Gold - Steal gold from monster');
         lines.push('');
-        lines.push('  Charges: ' + player.skill_charges_active + '/' + player.skill_charges_max);
+        lines.push('  Uses Today: ' + player.skill_charges_active + '/' + player.skill_charges_max);
         lines.push('');
-        lines.push('  Press (S) to use Steal');
+        lines.push(r('Choose skill (S,R) (? for menu)'));
+        lines.push('');
         break;
     }
   }
@@ -3011,79 +3096,202 @@ function performSkill(nick, skill) {
   const now = Date.now();
   switch (player.class) {
     case 0: // Death Knight - Power Attack
-      player.skill_charges_active--;
-      player.skill_charge_timers.push(now + (30 * 60 * 1000));
-      if (player.skill_charges_active < 0) player.skill_charges_active = 0;
-      
-      const dkMultiplier = random(150, 550) / 100;
-      const weaponAttack = game.getWeaponAttack(player.weapon_num);
-      const dkDamage = Math.floor((player.str + weaponAttack) * dkMultiplier);
-      
-      monster.hp -= dkDamage;
-      savePlayer(nick, player);
-      
-      sendLines(nick, [
-        '',
-        r('** DESTROY **'),
-        'You perform a devastating power attack!',
-        'You hit ' + monster.name + ' for ' + dkDamage + ' damage!',
-        'Charges: ' + player.skill_charges_active + '/' + player.skill_charges_max,
-        ''
-      ]);
-      break;
-      
-    case 1: // Mystic
-      if (skill === 'p') { // Pinch
-        const monsterLevel = Math.floor(monster.str / 10);
-        if (player.level <= monsterLevel) {
-          sendNotice(nick, 'Target level too high for Pinch!');
+      {
+        if (player.skill_charges_active <= 0) {
+          sendNotice(nick, 'No uses remaining! Train with masters to get more uses.');
           return;
         }
-        
+
         player.skill_charges_active--;
         player.skill_charge_timers.push(now + (30 * 60 * 1000));
-        if (player.skill_charges_active < 0) player.skill_charges_active = 0;
-        
-        const wpnAttack = game.getWeaponAttack(player.weapon_num);
-        const pinchMultiplier = random(100, 150) / 100;
-        const pinchDamage = Math.floor((player.str + wpnAttack) * pinchMultiplier);
-        monster.hp -= pinchDamage;
+
+        const dkMultiplier = random(150, 550) / 100;
+        const weaponAttack = game.getWeaponAttack(player.weapon_num);
+        const dkDamage = Math.floor((player.str + weaponAttack) * dkMultiplier);
+
+        monster.hp -= dkDamage;
         savePlayer(nick, player);
-        
+
         sendLines(nick, [
           '',
-          r('** PINCH **'),
-          'You whisper the word. You smile as ' + monster.name + ' screams out in pain.',
-          'You hit ' + monster.name + ' for ' + pinchDamage + ' damage!',
-          'Charges: ' + player.skill_charges_active + '/' + player.skill_charges_max,
+          r('** DESTROY **'),
+          'You perform a devastating power attack!',
+          'You hit ' + monster.name + ' for ' + dkDamage + ' damage!',
+          'Uses: ' + player.skill_charges_active + '/' + player.skill_charges_max,
           ''
         ]);
       }
       break;
       
+      case 1: // Mystic
+        {
+        const skillLevel = player.usesm || 0;
+        const skillInfo = getMysticSkill(skillLevel);
+        const expectedKey = skillInfo.key.toLowerCase();
+
+        if (skill !== expectedKey) {
+          sendNotice(nick, 'Your current mystical skill is (' + skillInfo.key + ') ' + skillInfo.name);
+          return;
+        }
+
+        if (player.skill_charges_active <= 0) {
+          sendNotice(nick, 'No uses remaining! Train with masters to get more uses.');
+          return;
+        }
+
+        player.skill_charges_active--;
+        player.skill_charge_timers.push(now + (30 * 60 * 1000));
+
+        switch (skill) {
+          case 'p': // Pinch Real Hard
+            {
+              const monsterLevel = Math.floor(monster.str / 10);
+              if (player.level <= monsterLevel) {
+                sendNotice(nick, 'Target level too high for Pinch!');
+                return;
+              }
+
+              const wpnAttack = game.getWeaponAttack(player.weapon_num);
+              const pinchMultiplier = random(100, 150) / 100;
+              const pinchDamage = Math.floor((player.str + wpnAttack) * pinchMultiplier);
+              monster.hp -= pinchDamage;
+              savePlayer(nick, player);
+
+              sendLines(nick, [
+                '',
+                r('** PINCH **'),
+                'You whisper the word. You smile as ' + monster.name + ' screams out in pain.',
+                'You hit ' + monster.name + ' for ' + pinchDamage + ' damage!',
+              'Uses: ' + player.skill_charges_active + '/' + player.skill_charges_max,
+              ''
+            ]);
+
+            userState.currentMonster = null;
+            setTimeout(() => showForest(nick), 100);
+            return;
+          }
+
+        case 'h': // Heat Wave
+          {
+            const wpnAttack = game.getWeaponAttack(player.weapon_num);
+            const heatDamage = Math.floor((player.str + wpnAttack) * 2.5);
+            monster.hp -= heatDamage;
+            savePlayer(nick, player);
+
+            sendLines(nick, [
+              '',
+              r('** HEAT WAVE **'),
+              'You wave your hand and a wall of fire erupts!',
+              'You hit ' + monster.name + ' for ' + heatDamage + ' fire damage!',
+              'Uses: ' + player.skill_charges_active + '/' + player.skill_charges_max,
+              ''
+            ]);
+          }
+          break;
+
+        case 'l': // Light Shield
+          {
+            userState.isShielded = true;
+            savePlayer(nick, player);
+
+            sendLines(nick, [
+              '',
+              r('** LIGHT SHIELD **'),
+              'A shimmering shield of light materializes around you!',
+              'You are protected from the next attack!',
+              'Uses: ' + player.skill_charges_active + '/' + player.skill_charges_max,
+              ''
+            ]);
+          }
+          break;
+
+        case 's': // Shatter
+          {
+            const wpnAttack = game.getWeaponAttack(player.weapon_num);
+            const shatterDamage = Math.floor((player.str * 2 + wpnAttack) * 2);
+            monster.hp -= shatterDamage;
+            savePlayer(nick, player);
+
+              sendLines(nick, [
+                '',
+                r('** SHATTER **'),
+                'You speak the word of power and reality cracks!',
+                'You hit ' + monster.name + ' for ' + shatterDamage + ' damage!',
+                'Uses: ' + player.skill_charges_active + '/' + player.skill_charges_max,
+                ''
+              ]);
+            }
+            break;
+
+          case 'm': // Mind Heal
+            {
+              player.hp = player.maxhp;
+              savePlayer(nick, player);
+
+              sendLines(nick, [
+                '',
+                r('** MIND HEAL **'),
+                'You close your eyes and channel your inner power.',
+                'Your wounds heal completely!',
+                'HP: ' + player.hp + '/' + player.maxhp,
+                'Uses: ' + player.skill_charges_active + '/' + player.skill_charges_max,
+                ''
+              ]);
+            }
+            break;
+
+          default:
+            sendNotice(nick, 'Mystical Skills - (' + skillInfo.key + ') ' + skillInfo.name);
+            return;
+        }
+      }
+      break;
+      
     case 2: // Thief - Steal
-      player.skill_charges_active--;
-      player.skill_charge_timers.push(now + (30 * 60 * 1000));
-      if (player.skill_charges_active < 0) player.skill_charges_active = 0;
-      
-      const stealTable = [500, 999, 4000, 7992, 13500, 26973, 32000, 63936, 62500, 124875, 108000, 215784];
-      const levelIndex = Math.min(Math.max(player.level - 1, 0) * 2, stealTable.length - 2);
-      const minSteal = stealTable[levelIndex];
-      const maxSteal = stealTable[levelIndex + 1];
-      const stolen = random(minSteal, maxSteal);
-      
-      player.gold += stolen;
-      monster.gold -= Math.floor(stolen * 0.1);
-      savePlayer(nick, player);
-      
-      sendLines(nick, [
-        '',
-        r('** STEAL **'),
-        'You attempt to steal from ' + monster.name + '!',
-        'You manage to make off with ' + stolen + ' gold!',
-        'Charges: ' + player.skill_charges_active + '/' + player.skill_charges_max,
-        ''
-      ]);
+      {
+        if (player.skill_charges_active <= 0) {
+          sendNotice(nick, 'No uses remaining! Train with masters to get more uses.');
+          return;
+        }
+
+        const stealTable = [500, 999, 4000, 7992, 13500, 26973, 32000, 63936, 62500, 124875, 108000, 215784, 171500, 342657, 256000, 511488, 364500, 728271, 500000, 999000, 665500, 1329669, 864000, 1726272];
+        const levelIndex = Math.min(Math.max(player.level - 1, 0) * 2, stealTable.length - 2);
+        const minSteal = stealTable[levelIndex];
+        const maxSteal = stealTable[levelIndex + 1];
+
+        if (monster.gold <= 0 || monster.gold === undefined) {
+          sendLines(nick, [
+            '',
+            r('** STEAL **'),
+            'You attempt to steal from ' + monster.name + '!',
+            'There is nothing to steal!',
+            'Uses: ' + player.skill_charges_active + '/' + player.skill_charges_max,
+            ''
+          ]);
+          break;
+        }
+
+        const stolen = Math.min(random(minSteal, maxSteal), monster.gold);
+        const actualStolen = Math.floor(stolen * 0.5);
+        const monsterKeep = Math.floor(stolen * 0.1);
+
+        player.gold = Math.min(player.gold + actualStolen, config.maxGold);
+        monster.gold = Math.max(0, monster.gold - stolen);
+
+        player.skill_charges_active--;
+        player.skill_charge_timers.push(now + (30 * 60 * 1000));
+        savePlayer(nick, player);
+
+        sendLines(nick, [
+          '',
+          r('** STEAL **'),
+          'You attempt to steal from ' + monster.name + '!',
+          'Your fingers work lightning fast...',
+          'You manage to make off with ' + actualStolen + ' gold!',
+          'Uses: ' + player.skill_charges_active + '/' + player.skill_charges_max,
+          ''
+        ]);
+      }
       break;
   }
   
@@ -4022,41 +4230,43 @@ function handleCommand(nick, cmd, args) {
         const skillPlayer = loadPlayer(nick);
         const userState = getState(nick);
         const lastFight = userState.lastFightState;
-        
+
+        if (cmdLower === '?' || cmdLower === '') {
+          showSkillMenu(nick);
+          break;
+        }
+
+        if (cmdLower === 'r' || cmdLower === 'R') {
+          returnToFightState(nick, lastFight);
+          break;
+        }
+
         if (!skillPlayer.skill_charges_max || skillPlayer.skill_charges_active <= 0) {
           sendNotice(nick, 'No skill charges remaining!');
           returnToFightState(nick, lastFight);
           break;
         }
-        switch (cmdLower) {
-          case 'r': case 'R':
-            returnToFightState(nick, lastFight);
-            break;
-          case 'd':
-            if (skillPlayer.class === 0) {
-              performSkill(nick, 'd');
-            } else {
-              sendNotice(nick, 'Invalid skill!');
-            }
-            break;
-          case 'p':
-            if (skillPlayer.class === 1) {
-              performSkill(nick, 'p');
-            } else {
-              sendNotice(nick, 'Invalid skill!');
-            }
-            break;
-          case 's':
-            if (skillPlayer.class === 2) {
-              performSkill(nick, 's');
-            } else {
-              sendNotice(nick, 'Invalid skill!');
-            }
-            break;
-          default:
-            sendNotice(nick, 'Invalid skill choice!');
-            break;
+
+        const skillKeys = { 0: ['d'], 1: ['p', 'd', 'h', 'l', 's', 'm'], 2: ['s'] };
+        const validKeys = skillKeys[skillPlayer.class] || [];
+
+        if (!validKeys.includes(cmdLower)) {
+          sendNotice(nick, 'Invalid skill for your class!');
+          showSkillMenu(nick);
+          break;
         }
+
+        if (skillPlayer.class === 1) {
+          const skillLevel = skillPlayer.usesm || 0;
+          const currentKey = getMysticKey(skillLevel);
+          if (cmdLower !== currentKey) {
+            const skillInfo = getMysticSkill(skillLevel);
+            sendNotice(nick, 'Your current mystical skill is (' + skillInfo.key + ') ' + skillInfo.name);
+            break;
+          }
+        }
+
+        performSkill(nick, cmdLower);
       }
       break;
 
