@@ -45,7 +45,36 @@ const PLAYER_STATES = {
   FOREST_HUT_GUESS: 'forest_hut_guess',
   SKILL_MENU: 'skill_menu',
   CONFIRM_LEAVE_DWARF: 'confirm_leave_dwarf',
-  CONFIRM_LEAVE_HUT: 'confirm_leave_hut'
+  CONFIRM_LEAVE_HUT: 'confirm_leave_hut',
+  INN_CONVO: 'inn_convo',
+  INN_CONVO_ADD: 'inn_convo_add',
+  INN_SETH: 'inn_seth',
+  INN_VIOLET: 'inn_violet',
+  INN_ROOM: 'inn_room',
+  INN_STATS: 'inn_stats',
+  INN_NEWS: 'inn_news',
+  INN_BARTENDER: 'inn_bartender',
+  INN_BARTENDER_GEMS: 'inn_bartender_gems',
+  INN_BARTENDER_GEMS_BUY: 'inn_bartender_gems_buy',
+  INN_BARTENDER_BRIBE: 'inn_bartender_bribe',
+  INN_BARTENDER_GEMS_DRANK: 'inn_bartender_gems_drank',
+  FOREST_OLDMAN: 'forest_oldman',
+  FOREST_SCROLL: 'forest_scroll',
+  FOREST_SCROLL_LOCATION: 'forest_scroll_location',
+  FOREST_HAG: 'forest_hag',
+  DARK_CLOAK: 'dark_cloak',
+  DARK_CLOAK_BARTENDER: 'dark_cloak_bartender',
+  OTHER_PLACES: 'other_places',
+  DRAGON: 'dragon',
+  BARAK_HOUSE: 'barak_house',
+  BARAK_KNOCK: 'barak_knock',
+  BARAK_BREEZE: 'barak_breeze',
+  BARAK_PLAY: 'barak_play',
+  BARAK_CHESTS: 'barak_chests',
+  BARAK_READ: 'barak_read',
+  BARAK_LAUGH: 'barak_laugh',
+  BARAK_WALKIN: 'barak_walkin',
+  BARAK_APOLOGIZE: 'barak_apologize'
 };
 
 const userStates = new Map();
@@ -69,11 +98,80 @@ function random(min, max) {
 }
 function w(val) { return '' + val; }
 
+function calculateFirstStrikeChance(player, target) {
+  if (!player || !target) return 50;
+
+  const playerPower = player.level * 10 + player.str;
+  const targetPower = target.maxhp || target.hp || 50;
+
+  const ratio = targetPower / Math.max(playerPower, 1);
+  
+  let chance = 70 - (ratio * 15) + (player.level * 1.5);
+  
+  chance = Math.max(10, Math.min(90, chance));
+  
+  return chance;
+}
+
 const FLOOD_DELAY = 1000;
 
 const messageQueue = new Map();
 const queueTimeouts = new Map();
 const queueVersion = new Map();
+
+const innConvo = [];
+const innNewConvo = [];
+
+const baraksBooks = {
+  'Dirty Deeds': ['Page 1: The art of mischief...', 'Page 2: Be sneaky!'],
+  'The Art Of Thievery': ['"The Art Of Thievery" by Chance.', ' Select your targets carefully. Don\'t steal from level', ' 12 people - being beheaded isn\'t particularly fun.'],
+  'Dragon Slaying': ['Chapter 1: How to slay a dragon...', 'Chapter 2: Dont.']
+};
+
+const baraksBooksPerks = {
+  'Dirty Deeds': ['hp', 1],
+  'The Art Of Thievery': ['Thief', 1],
+  'Dragon Slaying': ['hp', 2]
+};
+
+let barakChests = [];
+let barakEarnedGold = 0;
+let barakSelectedBook = -1;
+
+const sethSongsMale = [
+  [
+    '..."Waiting in the forest waiting for his prey"...',
+    '..."{0} didn\'t care what they would say"...',
+    '..."He killed in the town, the lands"...',
+    '..."He wanted evil\'s blood on his hands"...',
+    '',
+    'The song makes you feel powerful!'
+  ],
+  [
+    '..."A true man was {0}, a warrior proud"...',
+    '..."He voiced his opinions meekly, never very loud"...',
+    '..."But he ain\'t no wimp, he took Violet to bed"...',
+    '..."He\'s definately a man, at least that\'s what she said!"...',
+    '',
+    'The song makes you glad you are male!'
+  ]
+];
+
+const sethSongsFemale = [
+  [
+    '..."{0} was a warrior, a queen"...',
+    '..."She was a beauty, and she was mean"...',
+    '..."She could melt a heart, at a glance"...',
+    '..."And men would pay, to see her dance!"...',
+    '',
+    'The song makes you feel pretty!'
+  ]
+];
+
+const ROOM_COST = 400;
+const HORSE_NONE = 0;
+const HORSE_WHITE = 1;
+const HORSE_BLACK = 2;
 
 function getPlayerNick(characterName) {
   const lowerName = characterName.toLowerCase();
@@ -268,9 +366,305 @@ function showMainMenu(nick) {
   setState(nick, PLAYER_STATES.MAIN);
 }
 
+function showOtherPlaces(nick) {
+  const player = loadPlayer(nick);
+  if (!player) return;
+
+  const lines = [
+    '',
+    '  Other Places',
+    border(),
+    ''
+  ];
+
+  if (player.level >= 12) {
+    lines.push(w('(D)ragon Lair'));
+  } else {
+    lines.push('  You must be level 12 to challenge the Dragon.');
+  }
+
+  if (player.baraks_visited_today === 0) {
+    lines.push(w('(B)arak\'s House'));
+  } else {
+    lines.push('  You\'ve visited Barak today.');
+  }
+
+  lines.push('');
+  lines.push(w('(R)eturn to town'));
+  lines.push('');
+  lines.push(statLine(nick));
+  lines.push(r('Other Places') + w('  (D,B,R) (? for menu)'));
+  lines.push('');
+
+  sendLines(nick, lines);
+  setState(nick, PLAYER_STATES.OTHER_PLACES);
+}
+
+function showDragon(nick) {
+  const player = loadPlayer(nick);
+  if (!player) return;
+
+  const lines = [
+    '',
+    '  The Red Dragon',
+    border(),
+    ''
+  ];
+
+  if (player.level < 12) {
+    lines.push('You must be level 12 to challenge the Dragon.');
+    lines.push('');
+    lines.push(w('(R)eturn'));
+    lines.push('');
+    sendLines(nick, lines);
+    setState(nick, PLAYER_STATES.OTHER_PLACES);
+    return;
+  }
+
+  if (player.seen_dragon === 1) {
+    lines.push('You have already faced the Dragon today.');
+    lines.push('');
+    lines.push(w('(R)eturn'));
+    lines.push('');
+    sendLines(nick, lines);
+    setState(nick, PLAYER_STATES.OTHER_PLACES);
+    return;
+  }
+
+  player.seen_dragon = 1;
+  savePlayer(nick, player);
+
+  const dragonHp = 15000;
+  const dragonStr = 2000;
+
+  if (Math.random() * 100 > 97) {
+    lines.push('You approach the lair of the Red Dragon concealed by');
+    lines.push('darkness. The mountain looms high before you. In the');
+    lines.push('front is a huge cave... peering from that cave are');
+    lines.push('two blood red eyes. Those glaring eyes strike fear');
+    lines.push('into you...and the dragons fire-hot breath warms');
+    lines.push('you even from this far away.');
+  } else {
+    lines.push('The dragon laughs and burns you to ashes!');
+    lines.push('You were no match for the Red Dragon.');
+    lines.push('');
+    lines.push('You wake up back at the Inn, dead.');
+    player.dead = 1;
+    player.dead_until = Date.now() + (10 * 60 * 1000);
+    player.killed_by = 'Red Dragon';
+    player.hp = 1;
+    savePlayer(nick, player);
+  }
+
+  lines.push('');
+  lines.push(w('(R)eturn'));
+  lines.push('');
+
+  sendLines(nick, lines);
+  setState(nick, PLAYER_STATES.OTHER_PLACES);
+}
+
+function showBarakHouse(nick) {
+  const lines = [
+    '',
+    '  Visiting A Friend',
+    border(),
+    '  Feeling a might lonely, you decide to pay a visit to a',
+    '  dear friend. It\'s no short journey and you are quite',
+    '  tired when you arrive.',
+    '',
+    w('(K)nock on the door'),
+    w('(W)alk in like you own the place'),
+    w('(H)ead back to town'),
+    '',
+    w('You decide to... [K] :'),
+    ''
+  ];
+
+  sendLines(nick, lines);
+  setState(nick, PLAYER_STATES.BARAK_HOUSE);
+}
+
+function showBarakKnock(nick) {
+  const lines = [
+    '',
+    '  Visiting Old Friends',
+    border(),
+    '  Barak opens the door!',
+    '',
+    '"Whadaya ya want, kid?" Barak asks harshly.',
+    '',
+    w('(J)ust wanted to shoot the breeze, friend!'),
+    w('(C)an I borrow a cup of sugar, neighbor?'),
+    w('(Y)our beard went out of style centuries ago.'),
+    '',
+    w('You decide to say... [J] :'),
+    ''
+  ];
+
+  sendLines(nick, lines);
+  setState(nick, PLAYER_STATES.BARAK_KNOCK);
+}
+
+function showBarakBreeze(nick) {
+  const lines = [
+    '',
+    '  Chatting With Barak',
+    border(),
+    '"Shoot the breeze?" Barak asks, obviously puzzled.',
+    '',
+    w('(C)an I read some of your books?'),
+    w('(W)ant to play a game?'),
+    '',
+    w('You decide to say... [W] :'),
+    ''
+  ];
+
+  sendLines(nick, lines);
+  setState(nick, PLAYER_STATES.BARAK_BREEZE);
+}
+
+function showBarakPlay(nick) {
+  const lines = [
+    '',
+    '"Game? Ok - Uh, want to play \'let\'s clean out',
+    ' the basement\'?',
+    '',
+    w('(O)k, uh, that sounds like a really fun game.'),
+    w('(F)orget it. I\'m not that stupid.'),
+    '',
+    w('You decide to... [O] :'),
+    ''
+  ];
+
+  sendLines(nick, lines);
+  setState(nick, PLAYER_STATES.BARAK_PLAY);
+}
+
+function showBarakChests(nick) {
+  barakChests = [];
+  barakEarnedGold = 0;
+  const maxGold = 100 * (loadPlayer(nick)?.level || 1);
+  for (let i = 0; i < 6; i++) {
+    barakChests.push(random(0, maxGold) + 25);
+  }
+
+  const lines = [
+    '',
+    'There are six chests to choose from:',
+    '',
+    w('(1) (2) (3) (4) (5) (6)'),
+    '',
+    w('You choose ... :'),
+    ''
+  ];
+
+  sendLines(nick, lines);
+  setState(nick, PLAYER_STATES.BARAK_CHESTS);
+}
+
+function showBarakRead(nick) {
+  const lines = [
+    '',
+    '"Books?! BOOKS?! You know I can\'t read!" Barak',
+    ' shouts, tears streaming out of his eyes.',
+    '',
+    w('(L)augh ......... at poor Barak.'),
+    w('(O)ffer to read him a story.'),
+    '',
+    w('You decide to say... [O] :'),
+    ''
+  ];
+
+  sendLines(nick, lines);
+  setState(nick, PLAYER_STATES.BARAK_READ);
+}
+
+function showBarakLaugh(nick) {
+  const player = loadPlayer(nick);
+  if (!player) return;
+
+  player.gems = (player.gems || 0) + 1;
+  player.baraks_visited_today = 1;
+  savePlayer(nick, player);
+
+  const lines = [
+    '',
+    'You can\'t stop yourself from bellowing out in',
+    'laughter. Barak\'s face falls. Then turns to',
+    'stone.',
+    '',
+    'He then pulls out an Able\'s Sword!',
+    '',
+    'Barak Hunts you down like a dog.',
+    '',
+    ' YOU ARE DEFEATED.',
+    border(),
+    'Barak laughs as warm blood flows down your cheek.',
+    'Maybe next time?',
+    '',
+    'YOU FEEL AWFULLY WEAK.',
+    '',
+    'You trudge back home...',
+    ''
+  ];
+
+  sendLines(nick, lines);
+  showMainMenu(nick);
+}
+
+function showBarakWalkin(nick) {
+  const lines = [
+    '',
+    '  Uh oh...',
+    border(),
+    '  You saunter in like you own the place. Barak stares',
+    '  at you in wonder as you help yourself to some meat',
+    '  and cheese sitting on the table.',
+    '  "You insolent pubby! You will die for this." the',
+    '  bearded man growls.',
+    '',
+    w('(A)pologize and leave him be'),
+    w('(K)ick him in the shin and have a good laugh'),
+    '',
+    w('You decide to... [A] :'),
+    ''
+  ];
+
+  sendLines(nick, lines);
+  setState(nick, PLAYER_STATES.BARAK_WALKIN);
+}
+
+function showBarakApologize(nick) {
+  const player = loadPlayer(nick);
+  if (!player) return;
+
+  player.charm = Math.max(0, (player.charm || 1) - 1);
+  player.baraks_visited_today = 1;
+  savePlayer(nick, player);
+
+  const lines = [
+    '',
+    '"Oh, I thought you weren\'t home. My apologies."',
+    '',
+    'Barak throws you out of the house. You land in',
+    'a pile of manure.',
+    '',
+    'You trudge back home...',
+    ''
+  ];
+
+  sendLines(nick, lines);
+  showMainMenu(nick);
+}
+
 function showForest(nick) {
   const stats = game.getPlayerStats(nick);
   if (!stats) return;
+
+  const player = loadPlayer(nick);
+  const hasHorse = player && player.horse !== HORSE_NONE;
+  const horseName = hasHorse ? (player.horse === HORSE_WHITE ? 'White' : 'Black') : '';
 
   const lines = [
     '',
@@ -278,16 +672,30 @@ function showForest(nick) {
     border(),
     '  The murky forest stands before you - a giant maw of',
     '  gloomy darkness ever beckoning.',
-    '',
-    w('(L)ook for something to kill'),
-    w('(H)ealers hut'),
-    w('(S)tats'),
-    w('(R)eturn to town'),
-    '',
-    statLine(nick),
-    r('The Forest') + w('  (L,H,S,R,Q) (? for menu)'),
     ''
   ];
+
+  if (hasHorse) {
+    lines.push('  ' + g(horseName) + ' Mare' + '`% is tethered nearby.');
+  }
+
+  lines.push(w('(L)ook for something to kill'));
+  lines.push(w('(H)ealers hut'));
+  lines.push(w('(S)tats'));
+  lines.push(w('(R)eturn to town'));
+  lines.push('');
+
+  if (hasHorse) {
+    lines.push(w('(T)ake Horse to DarkCloak Tavern'));
+    lines.push('');
+    lines.push(statLine(nick));
+    lines.push(r('The Forest') + w('  (L,H,S,R,T,Q) (? for menu)'));
+  } else {
+    lines.push(statLine(nick));
+    lines.push(r('The Forest') + w('  (L,H,S,R,Q) (? for menu)'));
+  }
+
+  lines.push('');
   sendLines(nick, lines);
   setState(nick, PLAYER_STATES.FOREST);
 }
@@ -301,25 +709,20 @@ function showFullStats(nick) {
   if (!player) return;
 
   const stats = game.getPlayerStats(nick);
-  const xpBar = '='.repeat(Math.floor(stats.xpPercent / 5)) + '-'.repeat(20 - Math.floor(stats.xpPercent / 5));
-  
-  const classNames = ['Death Knight', 'Mystic', 'Thief'];
+  const classNames = ['Warrior', 'Death Knight', 'Mystic', 'Thief'];
   const className = classNames[player.class] || 'Warrior';
   
   const lines = [
     '',
-    stats.name + r("'s Stats..."),
+    stats.name + "'s Stats...",
     border(),
     'Experience   : ' + g(game.formatNumber(stats.xp)),
-    'Level        : ' + g(stats.level) + '   Class       : ' + g(className),
-    'HitPoints   : (' + g(stats.hp) + ' of ' + g(stats.maxhp) + ')',
-    'Forest Fights: ' + g(stats.fights) + '   PlayerFights: ' + g(stats.pfights),
-    'Gold In Hand : ' + g(game.formatNumber(stats.gold)) + '   Gold In Bank: ' + g(game.formatNumber(stats.bank)),
-    'Weapon       : ' + g(stats.weapon) + '   Atk Strength: ' + g(stats.str),
-    'Armour       : ' + g(stats.armor) + '   Def Strength: ' + g(stats.def),
-    'Charm        : ' + g(stats.charm) + '   Gems        : ' + g(stats.gems),
-    '',
-    'XP to next: ' + g(game.formatNumber(stats.nextXp)) + ' [' + g(xpBar) + '] ' + g(stats.xpPercent + '%'),
+    'Level        : ' + g(stats.level) + w(pad('HitPoints   : (' + stats.hp + ' of ' + stats.maxhp + ')', 32)),
+    'Forest Fights: ' + g(stats.fights) + w(pad('PlayerFights: ' + stats.pfights, 32)),
+    'Gold In Hand : ' + g(game.formatNumber(stats.gold)) + w(pad('Gold In Bank: ' + game.formatNumber(stats.bank), 32)),
+    'Weapon       : ' + g(stats.weapon) + w(pad('Atk Strength: ' + stats.str, 32)),
+    'Armour       : ' + g(stats.armor) + w(pad('Def Strength: ' + stats.def, 32)),
+    'Charm        : ' + g(stats.charm) + w(pad('Gems        : ' + stats.gems, 32)),
     ''
   ];
   
@@ -338,6 +741,11 @@ function showFullStats(nick) {
   
   sendLines(nick, lines);
   setState(nick, PLAYER_STATES.STATS);
+}
+
+function pad(str, len) {
+  while (str.length < len) str += ' ';
+  return str;
 }
 
 function showWeapons(nick) {
@@ -464,35 +872,345 @@ function showHealer(nick) {
 }
 
 function showInn(nick) {
-  const stats = game.getPlayerStats(nick);
-  if (!stats) return;
+  const player = loadPlayer(nick);
+  if (!player) return;
+
+  const now = Date.now();
+  const violetReady = !player.violet_timer || now >= player.violet_timer;
+  const timeLeft = player.violet_timer ? Math.max(0, player.violet_timer - now) : 0;
+  const hoursLeft = Math.floor(timeLeft / 3600000);
+  const minsLeft = Math.floor((timeLeft % 3600000) / 60000);
 
   const lines = [
     '',
-    '  The Inn',
+    '  Legend of the Red Dragon - The Inn',
     border(),
+    '  You enter the inn and are immediately hailed by',
+    '  several of the patrons. You respond with a wave and',
+    '  scan the room. The room is filled with smoke from',
+    '  the torches that line the walls. Oaken tables and',
+    '  chairs are scattered across the room. You smile as',
+    '  the well-rounded Violet brushes by you....',
     ''
   ];
 
-  if (stats.stayinn) {
+  if (player.stayinn) {
     lines.push('  You are currently staying at the inn.');
     lines.push('  You are safe from most attacks.');
     lines.push('');
     lines.push(w('(L)eave the inn'));
   } else {
     lines.push('  Room rate: ' + g('400') + ' gold/night');
-    lines.push('');
-    lines.push(w('(S)tay the night'));
   }
-  
-  lines.push(w('(R)eturn to town'));
+
   lines.push('');
-  lines.push(statLine(nick));
-  lines.push(r('The Inn') + w('  (S,L,R,Q) (? for menu)'));
+  lines.push(w('(C)onverse with patrons'));
+
+  if (player.sex === 0) {
+    if (violetReady) {
+      lines.push(w('(F)lirt with Violet'));
+    } else {
+      lines.push('  (F)lirt with Violet [resets in ' + hoursLeft + 'h ' + minsLeft + 'm]');
+    }
+    lines.push(w('(T)alk to the Bartender'));
+    lines.push(w('(G)et a Room'));
+    lines.push(w('(V)iew Your Stats'));
+    lines.push(w('(H)ear Seth Able the Bard'));
+    lines.push(w('(M)ake Announcement'));
+    lines.push(w('(R)eturn to Town'));
+    lines.push('');
+    lines.push(statLine(nick));
+    lines.push(r('The Inn') + w('  (C,F,T,G,V,H,M,R) (? for menu)'));
+  } else {
+    if (violetReady) {
+      lines.push(w('(F)lirt with Seth'));
+    } else {
+      lines.push('  (F)lirt with Seth [resets in ' + hoursLeft + 'h ' + minsLeft + 'm]');
+    }
+    lines.push(w('(T)alk to the Bartender'));
+    lines.push(w('(G)et a Room'));
+    lines.push(w('(V)iew Your Stats'));
+    lines.push(w('(H)ear Seth Able the Bard'));
+    lines.push(w('(M)ake Announcement'));
+    lines.push(w('(R)eturn to Town'));
+    lines.push('');
+    lines.push(statLine(nick));
+    lines.push(r('The Inn') + w('  (C,F,T,G,V,H,M,R) (? for menu)'));
+  }
   lines.push('');
-  
+
   sendLines(nick, lines);
   setState(nick, PLAYER_STATES.INN);
+}
+
+function showInnConvo(nick) {
+  const lines = [
+    '',
+    '  Chat with the Patrons',
+    border(),
+    ''
+  ];
+
+  if (innConvo.length === 0) {
+    lines.push('  The bar is quiet... no one is talking.');
+    lines.push('');
+  } else {
+    const newItems = innNewConvo.length;
+    if (newItems > 14) {
+      innNewConvo.splice(innNewConvo.length - 14, 14);
+    }
+
+    const len = innConvo.length - newItems;
+    for (let i = newItems; i < len; i += 2) {
+      lines.push(innConvo[i] + ':');
+      lines.push(innConvo[i + 1]);
+    }
+
+    for (let i = 0; i < innNewConvo.length; i += 2) {
+      lines.push(innNewConvo[i] + ':');
+      lines.push(innNewConvo[i + 1]);
+    }
+  }
+
+  lines.push('');
+  lines.push(w('(R)eturn to inn'));
+  lines.push('');
+
+  sendLines(nick, lines);
+  setState(nick, PLAYER_STATES.INN_CONVO);
+}
+
+function showInnBartender(nick) {
+  const stats = game.getPlayerStats(nick);
+  if (!stats) return;
+
+  const lines = [
+    '',
+    '  Legend of the Red Dragon - Bartender',
+    border(),
+    '  The bartender escorts you into a back room.',
+    '"I have heard yer name before kid... what do ya',
+    ' want to talk about?"',
+    ''
+  ];
+
+  lines.push(w('(V)iolet'));
+  lines.push(w('(G)ems'));
+  lines.push(w('(B)ribe'));
+  lines.push(w('(R)eturn to Bar'));
+  lines.push('');
+  lines.push('"Well?" The bartender inquires.');
+  lines.push('');
+
+  sendLines(nick, lines);
+  setState(nick, PLAYER_STATES.INN_BARTENDER);
+}
+
+function showInnBartenderGems(nick) {
+  const player = loadPlayer(nick);
+  if (!player) return;
+
+  const lines = [
+    '',
+    '  Bartender - Gems',
+    border(),
+    ''
+  ];
+
+  if (player.gems === 0) {
+    lines.push('"You have no gems."');
+    lines.push('');
+    lines.push(w('(R)eturn'));
+    lines.push('');
+    sendLines(nick, lines);
+    setState(nick, PLAYER_STATES.INN_BARTENDER);
+    return;
+  }
+
+  const maxElixirs = Math.floor(player.gems / 2);
+  lines.push('"You have Gems, eh? I\'ll give ya a pint of magic');
+  lines.push(' elixir for two."');
+  lines.push('');
+  lines.push('Buy how many elixirs? [' + maxElixirs + ']');
+  lines.push('Or (R)eturn to bar');
+  lines.push('');
+
+  sendLines(nick, lines);
+  setState(nick, PLAYER_STATES.INN_BARTENDER_GEMS);
+}
+
+function showInnBartenderBribe(nick) {
+  const player = loadPlayer(nick);
+  if (!player) return;
+
+  const bribeCost = player.level * 1600;
+  const lines = [
+    '',
+    '  Bartender - Bribe',
+    border(),
+    '',
+    '"Ahh..Bribe...Now you are speaking my language friend!',
+    'I will let you borrow my room keys...on one condition..',
+    'That ya pay me ' + bribeCost + ' gold!!" Deal? [Y/N]',
+    ''
+  ];
+
+  sendLines(nick, lines);
+  setState(nick, PLAYER_STATES.INN_BARTENDER_BRIBE);
+}
+
+function showSethAble(nick, returnTo = 'inn') {
+  const player = loadPlayer(nick);
+  if (!player) return;
+
+  const userState = getState(nick);
+  userState.temp = { sethReturn: returnTo };
+
+  const now = Date.now();
+  const sethReady = !player.seenbard || now >= player.seenbard;
+  const timeLeft = player.seenbard ? Math.max(0, player.seenbard - now) : 0;
+  const hoursLeft = Math.floor(timeLeft / 3600000);
+  const minsLeft = Math.floor((timeLeft % 3600000) / 60000);
+
+  const lines = [
+    '',
+    '  Seth Able the Bard',
+    border(),
+    '  Seth Able eyes you as you sit down next to him.',
+    ''
+  ];
+
+  if (player.sex === 1) {
+    lines.push('  You can\'t help but notice that Seth Able is a');
+    lines.push('  very handsome, very well built individual.');
+    lines.push('');
+  }
+
+  if (sethReady) {
+    lines.push(w('(A)sk Seth to sing'));
+  } else {
+    lines.push('  (A)sk Seth to sing [resets in ' + hoursLeft + 'h ' + minsLeft + 'm]');
+  }
+
+  if (player.sex === 1) {
+    lines.push(w('(F)lirt with Seth [Charm 1+]'));
+    lines.push('');
+    lines.push('Your Charm: ' + g(player.charm));
+  }
+
+  lines.push('');
+  lines.push(w('(R)eturn (? for menu)'));
+  lines.push('');
+
+  sendLines(nick, lines);
+  setState(nick, PLAYER_STATES.INN_SETH);
+}
+
+function sethSings(nick) {
+  const player = loadPlayer(nick);
+  if (!player) return;
+
+  const now = Date.now();
+  const lines = [''];
+
+  if (player.seenbard && now < player.seenbard) {
+    const timeLeft = player.seenbard - now;
+    const hoursLeft = Math.floor(timeLeft / 3600000);
+    const minsLeft = Math.floor((timeLeft % 3600000) / 60000);
+    lines.push('"I\'m sorry, but my throat is too dry... Perhaps in ' + hoursLeft + 'h ' + minsLeft + 'm."');
+    sendLines(nick, lines);
+    showInn(nick);
+    return;
+  }
+
+  player.seenbard = now + (24 * 60 * 60 * 1000);
+
+  let song;
+  if (player.sex === 0) {
+    song = sethSongsMale[random(0, sethSongsMale.length - 1)];
+  } else {
+    song = sethSongsFemale[random(0, sethSongsFemale.length - 1)];
+  }
+
+  lines.push('(Seth clears his throat)');
+  lines.push('');
+
+  song.forEach(line => {
+    lines.push(line.replace('{0}', player.name));
+  });
+
+  lines.push('');
+
+  if (player.sex === 0) {
+    const fightsGain = random(1, 3);
+    player.fights = Math.min(500, player.fights + fightsGain);
+    lines.push('You receive ' + g(fightsGain) + ' more forest fights for today!');
+  } else {
+    player.charm += 1;
+    lines.push('You receive a charm point!');
+  }
+
+  savePlayer(nick, player);
+  lines.push('');
+
+  sendLines(nick, lines);
+  showInn(nick);
+}
+
+function showViolet(nick, returnTo = 'inn') {
+  const player = loadPlayer(nick);
+  if (!player) return;
+
+  const userState = getState(nick);
+  userState.temp = { violetReturn: returnTo };
+
+  const lines = [
+    '',
+    '  Violet',
+    border(),
+    ''
+  ];
+
+  if (player.marriedto && player.marriedto !== '') {
+    lines.push('Violet is currently married to ' + player.marriedto);
+    lines.push('');
+    lines.push('Grizelda greets you instead...');
+    lines.push('You find yourself with a hand full of cellulose...');
+  } else {
+    lines.push(w('(N)ever mind'));
+    lines.push(w('(W)ink [Charm 1+]'));
+    lines.push(w('(K)iss her hand [Charm 2+]'));
+    lines.push(w('(P)eck her lips [Charm 4+]'));
+    lines.push(w('(S)it on lap [Charm 8+]'));
+    lines.push(w('(G)rab backside [Charm 16+]'));
+    lines.push(w('(C)arry upstairs [Charm 32+]'));
+    lines.push(w('(M)arry her [Charm 100+]'));
+  }
+
+  lines.push('');
+  lines.push('Your Charm: ' + g(player.charm));
+  lines.push('');
+  lines.push(w('(R)eturn (? for menu)'));
+  lines.push('');
+
+  sendLines(nick, lines);
+  setState(nick, PLAYER_STATES.INN_VIOLET);
+}
+
+function showInnRoom(nick) {
+  const lines = [
+    '',
+    '  Get a room for ' + g(ROOM_COST) + ' gold?',
+    border(),
+    ''
+  ];
+
+  lines.push(w('(Y)es'));
+  lines.push(w('(N)o'));
+  lines.push('');
+
+  sendLines(nick, lines);
+  setState(nick, PLAYER_STATES.INN_ROOM);
 }
 
 function showTavern(nick) {
@@ -516,6 +1234,167 @@ function showTavern(nick) {
     ''
   ]);
   setState(nick, PLAYER_STATES.TAVERN);
+}
+
+function showDarkCloak(nick) {
+  const stats = game.getPlayerStats(nick);
+  if (!stats) return;
+
+  sendLines(nick, [
+    '',
+    r('              Dark Cloak Tavern'),
+    border(),
+    '  A blazing fire warms your heart as well as your body',
+    '  in this fragrant roadhouse. Many a wary traveler has',
+    '  had the good fortune to find this cozy hostel, to',
+    '  escape the harsh reality of the dense forest for a',
+    '  few moments. You notice someone has etched something',
+    '  in the table you are sitting at.',
+    '',
+    w('(C)onverse with The Patrons'),
+    w('(D)aily News'),
+    w('(E)xamine Etchings In Table'),
+    w('(T)alk with Bartender'),
+    w('(G)amble With Locals'),
+    '',
+    statLine(nick),
+    r('Dark Cloak Tavern') + w('  (C,D,E,T,G,R,Q) (? for menu)'),
+    ''
+  ]);
+  setState(nick, PLAYER_STATES.DARK_CLOAK);
+}
+
+function showDarkCloakBartender(nick) {
+  const player = loadPlayer(nick);
+  if (!player) return;
+
+  if (player.level <= 1) {
+    sendLines(nick, [
+      '',
+      '  Legend of the Red Dragon - Bartender',
+      border(),
+      '  You find the bartender and ask him if he will talk',
+      '  privately with you.',
+      '',
+      '"I don\'t recall ever hearing the name',
+      player.name + '`% before! Get outta my face!"',
+      '',
+      w('(R)eturn to Bar'),
+      ''
+    ]);
+    setState(nick, PLAYER_STATES.DARK_CLOAK);
+    return;
+  }
+
+  const lines = [
+    '',
+    '  Legend of the Red Dragon - Bartender',
+    border(),
+    '  The bartender escorts you into a back room.',
+    '"I have heard yer name before kid... what do ya',
+    ' want to talk about?"',
+    ''
+  ];
+
+  if (player.sex === 0) {
+    lines.push(w('(V)iolet'));
+  } else {
+    lines.push(w('(S)eth'));
+  }
+
+  lines.push(w('(G)ems'));
+  lines.push(w('(B)ribe'));
+  lines.push(w('(C)hange your name'));
+  lines.push(w('(R)eturn to Bar'));
+  lines.push('');
+  lines.push(r('"Well?" The bartender inquires. (? for menu)'));
+  lines.push('');
+
+  sendLines(nick, lines);
+  setState(nick, PLAYER_STATES.DARK_CLOAK_BARTENDER);
+}
+
+function showDarkCloakGamble(nick) {
+  const player = loadPlayer(nick);
+  if (!player) return;
+
+  sendLines(nick, [
+    '',
+    '  Gamble With Locals',
+    border(),
+    '  How much do you want to wager?',
+    '',
+    '  You have ' + player.gold + ' gold.',
+    '',
+    '  Enter amount (or A for all-in):',
+    ''
+  ]);
+  setState(nick, 'dark_cloak_gamble');
+}
+
+function showDarkCloakEtchings(nick) {
+  const allPlayers = getAllPlayers();
+
+  const lines = [
+    '',
+    '  Dark Cloak Tavern - Examine Etchings',
+    border(),
+    ''
+  ];
+
+  let foundAny = false;
+  allPlayers.forEach((p) => {
+    if (p.lays && p.lays > 0) {
+      lines.push(p.name + '`% has ' + p.lays + ' lays');
+      foundAny = true;
+    }
+  });
+
+  if (!foundAny) {
+    lines.push('  No one has made any marks on this table yet.');
+  }
+
+  lines.push('');
+  lines.push(w('(R)eturn to Bar'));
+  lines.push('');
+
+  sendLines(nick, lines);
+  setState(nick, PLAYER_STATES.DARK_CLOAK);
+}
+
+function showDarkCloakBartenderMenu(nick, cmd) {
+  switch (cmd) {
+    case 'r':
+      showDarkCloak(nick);
+      break;
+    case 'v':
+    case 's':
+      if (cmd === 'v') {
+        showViolet(nick, 'darkcloak');
+      } else {
+        showSethAble(nick, 'darkcloak');
+      }
+      break;
+    case 'g':
+      showInnBartenderGems(nick);
+      break;
+    case 'b':
+      showInnBartenderBribe(nick);
+      break;
+    case 'c':
+      sendLines(nick, [
+        '',
+        '  Change your name is not yet implemented.',
+        ''
+      ]);
+      showDarkCloakBartender(nick);
+      break;
+    case '?':
+      showDarkCloakBartender(nick);
+      break;
+    default:
+      sendNotice(nick, 'Bartender - V,S,G,B,C,R (? for menu)');
+  }
 }
 
 function showPeople(nick) {
@@ -702,6 +1581,9 @@ function startMasterFight(nick) {
   const userState = getState(nick);
   userState.currentMonster = masterMonster;
 
+  const firstStrikeChance = calculateFirstStrikeChance(player, masterMonster);
+  const first = Math.random() * 100 < firstStrikeChance;
+
   const lines = [
     '',
     r('**MASTER FIGHT**'),
@@ -710,11 +1592,16 @@ function startMasterFight(nick) {
     'Master ' + currentMaster.name + ' wields a ' + currentMaster.weapon + '!',
     '',
     'Master HP: ' + g(currentMaster.hp),
-    '',
-    'Your move:',
     ''
   ];
 
+  if (first) {
+    lines.push('Your skill allows you to get the first strike.');
+  } else {
+    lines.push(currentMaster.name + ' has surprised you!');
+  }
+
+  lines.push('');
   lines.push(statLine(nick));
   const skillText = getSkillMenuText(player);
   lines.push(w('(A)ttack ') + skillText + w('(R)un'));
@@ -729,6 +1616,7 @@ function startMasterFight(nick) {
   {
     const us = getState(nick);
     us.lastFightState = PLAYER_STATES.FIGHT_MASTER;
+    us.enemyFirstStrike = !first;
   }
   setState(nick, PLAYER_STATES.FIGHT_MASTER);
 }
@@ -744,11 +1632,35 @@ function processMasterAttack(nick) {
   }
 
   const stats = game.getPlayerStats(nick);
+  const lines = [];
+
+  if (userState.enemyFirstStrike) {
+    const monsterDamage = Math.floor(Math.random() * (monster.str + 1)) + (monster.attack || 0);
+    const armorDefense = game.getArmorDefense ? game.getArmorDefense(stats.armor_num) : 0;
+    const actualDamage = Math.max(1, monsterDamage - armorDefense);
+    const newPlayerHp = Math.max(0, stats.hp - actualDamage);
+
+    lines.push(monster.name + ' attacks first for ' + g(actualDamage) + ' damage!');
+
+    if (newPlayerHp <= 0) {
+      lines.push('You have been defeated by ' + monster.name + '!');
+      game.setPlayerHp(nick, newPlayerHp);
+      userState.currentMonster = null;
+      userState.enemyFirstStrike = false;
+      flushQueue(nick);
+      sendLines(nick, lines);
+      showTraining(nick);
+      return;
+    }
+
+    game.setPlayerHp(nick, newPlayerHp);
+    lines.push('');
+  }
+
   const weaponAttack = game.getWeaponAttack ? game.getWeaponAttack(stats.weapon_num) : 0;
   const damage = Math.floor(Math.random() * (stats.str + 1)) + weaponAttack;
   monster.hp = monster.hp - damage;
 
-  const lines = [];
   lines.push('You hit ' + monster.name + ' for ' + g(damage) + ' damage!');
 
   if (monster.hp <= 0) {
@@ -973,7 +1885,10 @@ function startPlayerFight(nick, targetIndex) {
   }
 
   const refreshedPlayer = checkAndRefreshSkills(nick);
-   
+
+  const firstStrikeChance = calculateFirstStrikeChance(refreshedPlayer, target);
+  const first = Math.random() * 100 < firstStrikeChance;
+
   const lines = [
     '',
     r('**PLAYER FIGHT**'),
@@ -984,7 +1899,14 @@ function startPlayerFight(nick, targetIndex) {
     target.name + ' HP: (' + g(target.hp) + ' of ' + g(target.maxhp) + ')',
     ''
   ];
-  
+
+  if (first) {
+    lines.push('Your experience gives you the first strike!');
+  } else {
+    lines.push(target.name + ' has surprised you!');
+  }
+
+  lines.push('');
   lines.push(statLine(nick));
   const skillText = getSkillMenuText(refreshedPlayer);
   lines.push(w('(A)ttack ') + skillText + w('(R)un'));
@@ -999,6 +1921,7 @@ function startPlayerFight(nick, targetIndex) {
   {
     const us = getState(nick);
     us.lastFightState = PLAYER_STATES.FIGHT_PLAYER;
+    us.enemyFirstStrike = !first;
   }
   setState(nick, PLAYER_STATES.FIGHT_PLAYER);
 }
@@ -1014,11 +1937,49 @@ function processPlayerAttack(nick) {
   }
 
   const stats = game.getPlayerStats(nick);
+  const lines = [];
+
+  if (userState.enemyFirstStrike) {
+    const monsterDamage = Math.floor(Math.random() * (monster.str + 1)) + (monster.attack || 0);
+    const armorDefense = game.getArmorDefense ? game.getArmorDefense(stats.armor_num) : 0;
+    const actualDamage = Math.max(1, monsterDamage - armorDefense);
+    const newPlayerHp = Math.max(0, stats.hp - actualDamage);
+
+    lines.push(monster.name + ' attacks first for ' + g(actualDamage) + ' damage!');
+
+    if (newPlayerHp <= 0) {
+      game.killPlayer(nick, 10, 'Player: ' + monster.name);
+
+      lines.push(border());
+      lines.push('You have been defeated by ' + monster.name + '!');
+      lines.push('You are dead for 10 minutes!');
+      lines.push(border());
+      lines.push('');
+
+      const victimChar = loadPlayer(nick);
+      const attackerNick = getPlayerNick(monster.name);
+
+      if (attackerNick) {
+        const winMsg = 'You defeated ' + (victimChar?.name || nick) + '! They are dead for 10 minutes!';
+        console.log('[SLAUGHTER] -> ' + attackerNick + ': ' + winMsg);
+        sendDirectNotice(attackerNick, winMsg);
+      }
+
+      userState.currentMonster = null;
+      userState.enemyFirstStrike = false;
+      userState.state = PLAYER_STATES.NONE;
+      sendLines(nick, lines);
+      return;
+    }
+
+    game.setPlayerHp(nick, newPlayerHp);
+    lines.push('');
+  }
+
   const weaponAttack = game.getWeaponAttack ? game.getWeaponAttack(stats.weapon_num) : 0;
   const damage = Math.floor(Math.random() * (stats.str + 1)) + weaponAttack;
   monster.hp = monster.hp - damage;
 
-  const lines = [];
   lines.push('You hit ' + monster.name + ' for ' + g(damage) + ' damage!');
 
   if (monster.hp <= 0) {
@@ -1350,7 +2311,6 @@ function startFight(nick) {
         setState(nick, PLAYER_STATES.FOREST_EVENT);
         return;
       }
-      
       const lines = [
         '',
         border(),
@@ -1361,24 +2321,37 @@ function startFight(nick) {
         ''
       ];
       event.outcomes.forEach(outcome => {
-        lines.push(outcome);
+        lines.push('  ' + outcome);
       });
-      lines.push('');
-      lines.push('(R)eturn to Forest');
-      lines.push('');
-      
+
       const userState = getState(nick);
       userState.temp = { eventOutcome: event };
-      
-      sendLines(nick, lines);
-      setState(nick, PLAYER_STATES.FOREST_EVENT);
+
+      if (event.prompt === 'darkcloak') {
+        showDarkCloak(nick);
+        return;
+      }
+
+      if (event.prompt === 'oldman') {
+        lines.push('');
+        lines.push('  Do you take the old man? [Y/N]');
+        lines.push('');
+        sendLines(nick, lines);
+        setState(nick, PLAYER_STATES.FOREST_EVENT);
+      } else {
+        lines.push('');
+        lines.push('(R)eturn to Forest');
+        lines.push('');
+        sendLines(nick, lines);
+        setState(nick, PLAYER_STATES.FOREST_EVENT);
+      }
       return;
     }
   }
   
   game.decrementFights(nick);
   const result = game.fightMonster(nick);
-  
+
   if (result.error) {
     sendNotice(nick, result.error);
     showForest(nick);
@@ -1387,9 +2360,12 @@ function startFight(nick) {
 
   const userState = getState(nick);
   userState.currentMonster = result.monster;
-  
-  const first = Math.random() > 0.7;
-  
+
+  const player = loadPlayer(nick);
+  const monster = result.monster;
+  const firstStrikeChance = calculateFirstStrikeChance(player, monster);
+  const first = Math.random() * 100 < firstStrikeChance;
+
   const lines = [
     '',
     r('**FIGHT**'),
@@ -1406,20 +2382,20 @@ function startFight(nick) {
   } else {
     lines.push('The enemy surprised you!');
   }
-  
+
   lines.push('');
   lines.push(statLine(nick));
-  
-  const player = loadPlayer(nick);
+
   const skillText = getSkillMenuText(player);
   lines.push(w('(A)ttack ') + skillText + w(' (S)tats (R)un'));
   lines.push('');
   lines.push(r('The Forest') + w('  (A,R,Q) (? for menu)'));
-  
+
   sendLines(nick, lines);
   {
     const us = getState(nick);
     us.lastFightState = PLAYER_STATES.FIGHT;
+    us.enemyFirstStrike = !first;
   }
   setState(nick, PLAYER_STATES.FIGHT);
 }
@@ -1427,22 +2403,46 @@ function startFight(nick) {
 function processAttack(nick) {
   const userState = getState(nick);
   const monster = userState.currentMonster;
-  
+
   if (!monster) {
     sendNotice(nick, 'No monster to fight!');
     showForest(nick);
     return;
   }
-  
+
+  const stats = game.getPlayerStats(nick);
+  const lines = [];
+
+  if (userState.enemyFirstStrike && !monster.isPlayer) {
+    const monsterDamage = Math.floor(Math.random() * (monster.str + 1));
+    const armorDefense = game.getArmorDefense ? game.getArmorDefense(stats.armor_num) : 0;
+    const actualDamage = Math.max(1, monsterDamage - armorDefense);
+    const newPlayerHp = Math.max(0, stats.hp - actualDamage);
+
+    lines.push(monster.name + ' attacks first for ' + g(actualDamage) + ' damage!');
+
+    if (newPlayerHp <= 0) {
+      game.killPlayer(nick, 10, 'Monster: ' + monster.name);
+      lines.push('DEAD! Killed by ' + monster.name + ' - Dead for 10 minutes!');
+      userState.currentMonster = null;
+      userState.enemyFirstStrike = false;
+      flushQueue(nick);
+      sendLines(nick, lines);
+      clearState(nick);
+      return;
+    }
+
+    game.setPlayerHp(nick, newPlayerHp);
+    lines.push('');
+  }
+
   const result = game.attackMonster(nick, monster.hp, monster.str, monster.maxhp);
   
   if (result.error) {
     sendNotice(nick, result.error);
     return;
   }
-  
-  const lines = [];
-  
+
   if (result.powerMove) {
     lines.push(r('**POWER MOVE**'));
     lines.push('');
@@ -2335,6 +3335,7 @@ function handleCommand(nick, cmd, args) {
         case 'l': case 'L': showPeople(nick); break;
         case 'd': case 'D': showNews(nick); break;
         case 'p': case 'P': showPeople(nick); break;
+        case 'o': case 'O': showOtherPlaces(nick); break;
         case 'c': case 'C': showMainMenu(nick); break;
         case '?': showMainMenu(nick); break;
         case 'q': case 'Q':
@@ -2348,21 +3349,300 @@ function handleCommand(nick, cmd, args) {
       }
       break;
 
+    case PLAYER_STATES.OTHER_PLACES:
+      if (cmdLower === 'r' || cmdLower === 'q') {
+        showMainMenu(nick);
+        break;
+      }
+      if (cmdLower === 'd') {
+        showDragon(nick);
+        break;
+      }
+      if (cmdLower === 'b') {
+        showBarakHouse(nick);
+        break;
+      }
+      if (cmdLower === '?') {
+        showOtherPlaces(nick);
+        break;
+      }
+      sendNotice(nick, 'Other Places - D (Dragon), B (Barak), R (Return)');
+      showOtherPlaces(nick);
+      break;
+
+    case PLAYER_STATES.BARAK_HOUSE:
+      if (cmdLower === 'h' || cmdLower === 'r') {
+        showMainMenu(nick);
+        break;
+      }
+      if (cmdLower === 'k' || cmdLower === '') {
+        showBarakKnock(nick);
+        break;
+      }
+      if (cmdLower === 'w') {
+        showBarakWalkin(nick);
+        break;
+      }
+      sendNotice(nick, 'Barak House - K, W, H, R');
+      showBarakHouse(nick);
+      break;
+
+    case PLAYER_STATES.BARAK_KNOCK:
+      if (cmdLower === 'h' || cmdLower === 'r') {
+        const player = loadPlayer(nick);
+        if (player) {
+          player.baraks_visited_today = 1;
+          savePlayer(nick, player);
+        }
+        showMainMenu(nick);
+        break;
+      }
+      if (cmdLower === 'j' || cmdLower === '') {
+        showBarakBreeze(nick);
+        break;
+      }
+      if (cmdLower === 'c') {
+        const player = loadPlayer(nick);
+        if (player) {
+          player.gems = (player.gems || 0) + 1;
+          player.baraks_visited_today = 1;
+          savePlayer(nick, player);
+        }
+        sendLines(nick, ['', 'Barak gives you 1 gem for your humor.', '', 'You trudge back home...', '']);
+        showMainMenu(nick);
+        break;
+      }
+      if (cmdLower === 'y') {
+        sendLines(nick, ['', 'Barak is offended by your insult!', '', 'You trudge back home...', '']);
+        showMainMenu(nick);
+        break;
+      }
+      sendNotice(nick, 'Barak - J, C, Y, H, R');
+      showBarakKnock(nick);
+      break;
+
+    case PLAYER_STATES.BARAK_BREEZE:
+      if (cmdLower === 'h' || cmdLower === 'r') {
+        const player = loadPlayer(nick);
+        if (player) {
+          player.baraks_visited_today = 1;
+          savePlayer(nick, player);
+        }
+        showMainMenu(nick);
+        break;
+      }
+      if (cmdLower === 'w' || cmdLower === '') {
+        showBarakPlay(nick);
+        break;
+      }
+      if (cmdLower === 'c') {
+        showBarakRead(nick);
+        break;
+      }
+      sendNotice(nick, 'Barak - W, C, H, R');
+      showBarakBreeze(nick);
+      break;
+
+    case PLAYER_STATES.BARAK_PLAY:
+      if (cmdLower === 'h' || cmdLower === 'r' || cmdLower === 'f') {
+        const player = loadPlayer(nick);
+        if (player) {
+          player.baraks_visited_today = 1;
+          savePlayer(nick, player);
+        }
+        sendLines(nick, ['', '"You stupid brat!" scream Barak in a fit of rage.', '', 'YOU TRUDGE HOME, FEELING LIKE A LOSER.', '']);
+        showMainMenu(nick);
+        break;
+      }
+      if (cmdLower === 'o' || cmdLower === '') {
+        showBarakChests(nick);
+        break;
+      }
+      sendNotice(nick, 'Barak - O, F, H, R');
+      showBarakPlay(nick);
+      break;
+
+    case PLAYER_STATES.BARAK_CHESTS:
+      {
+        const chestNum = parseInt(cmd);
+        if (chestNum >= 1 && chestNum <= 6) {
+          const goldFound = barakChests[chestNum - 1];
+          barakEarnedGold += goldFound;
+
+          const lines = [
+            '',
+            'You open chest ' + chestNum + ' and find ' + goldFound + ' gold!',
+            ''
+          ];
+
+          if (goldFound < 50) {
+            lines.push('"Not bad!" you say.');
+            lines.push('');
+            lines.push('You made off with ' + barakEarnedGold + ' gold!');
+            const player = loadPlayer(nick);
+            if (player) {
+              player.gold = Math.min(player.gold + barakEarnedGold, config.maxGold);
+              player.baraks_visited_today = 1;
+              savePlayer(nick, player);
+            }
+            sendLines(nick, lines);
+            showMainMenu(nick);
+          } else {
+            lines.push('"This is a trap!" you scream!');
+            lines.push('');
+            lines.push('Barak is right behind you!');
+            lines.push('');
+            lines.push('YOU ARE DEFEATED.');
+            lines.push(border());
+            lines.push('Barak laughs as warm blood flows down your cheek.');
+            lines.push('Maybe next time?');
+            lines.push('');
+            lines.push('YOU FEEL AWFULLY WEAK.');
+            const player = loadPlayer(nick);
+            if (player) {
+              player.hp = 1;
+              player.baraks_visited_today = 1;
+              savePlayer(nick, player);
+            }
+            lines.push('');
+            lines.push('You trudge back home...');
+            lines.push('');
+            sendLines(nick, lines);
+            showMainMenu(nick);
+          }
+          break;
+        }
+        sendNotice(nick, 'Choose a chest: 1-6');
+        showBarakChests(nick);
+      }
+      break;
+
+    case PLAYER_STATES.BARAK_READ:
+      if (cmdLower === 'h' || cmdLower === 'r' || cmdLower === 'l') {
+        showBarakLaugh(nick);
+        break;
+      }
+      if (cmdLower === 'o' || cmdLower === '') {
+        const player = loadPlayer(nick);
+        const bookKeys = Object.keys(baraksBooks);
+        barakSelectedBook = random(0, bookKeys.length - 1);
+        const bookName = bookKeys[barakSelectedBook];
+        const bookPages = baraksBooks[bookName];
+
+        const lines = [
+          '',
+          '"You will?" pitifully, wiping his nose. "Will',
+          ' you read this to me?"',
+          '',
+          'Barak shows you a book of....' + bookName + '.',
+          '',
+          'You are non-plussed, but agree to read it.',
+          border()
+        ];
+
+        bookPages.forEach(page => lines.push(page));
+        lines.push(border());
+
+        if (random(1, 100) > 70) {
+          lines.push('');
+          lines.push('YOU LEARN SOMETHING FROM THE DRIVEL.');
+          const perk = baraksBooksPerks[bookName];
+          if (perk) {
+            if (perk[0] === 'hp' && player) {
+              player.maxhp += perk[1];
+              player.hp = Math.min(player.hp + perk[1], player.maxhp);
+              lines.push('Your max HP increased by ' + perk[1] + '!');
+            }
+          }
+        }
+
+        lines.push('');
+        lines.push('You put down the book.');
+        lines.push('"Please, ' + (player?.name || 'friend') + '!');
+        lines.push('Read more!" Barak whines.');
+        lines.push('');
+        lines.push('You smile. "Nah, I gotta go."');
+        lines.push('');
+
+        if (player) {
+          player.baraks_visited_today = 1;
+          savePlayer(nick, player);
+        }
+
+        sendLines(nick, lines);
+        showMainMenu(nick);
+        break;
+      }
+      sendNotice(nick, 'Barak - O, L, H, R');
+      showBarakRead(nick);
+      break;
+
+    case PLAYER_STATES.BARAK_WALKIN:
+      if (cmdLower === 'a' || cmdLower === '') {
+        showBarakApologize(nick);
+        break;
+      }
+      if (cmdLower === 'k') {
+        const player = loadPlayer(nick);
+        if (player) {
+          const maxhp = player.maxhp || 15;
+          player.hp = Math.min(player.hp + Math.floor(maxhp * 0.25), player.maxhp);
+          player.baraks_visited_today = 1;
+          savePlayer(nick, player);
+        }
+        const lines = [
+          '',
+          'You kick him a good one!',
+          'He screams in pain!',
+          '',
+          'You laugh so hard small pieces fly out of',
+          'your mouth and pummel him.',
+          '',
+          '"No more!" Barak shrieks.',
+          '',
+          '"Give me your most valuable possession,',
+          'you hairy fool."',
+          '',
+          '"Alright! I\'ll give you a flask of my Ultra Ale."',
+          '',
+          'You feel refreshed! HP restored!',
+          ''
+        ];
+        sendLines(nick, lines);
+        showMainMenu(nick);
+        break;
+      }
+      sendNotice(nick, 'Barak - A, K');
+      showBarakWalkin(nick);
+      break;
+
     case PLAYER_STATES.FOREST:
-      switch (cmdLower) {
-        case 'l': case 'L': startFight(nick); break;
-        case 'h': case 'H': showHealer(nick); break;
-        case 's': case 'S': showStats(nick); break;
-        case 'r': case 'R': showMainMenu(nick); break;
-        case 'q': case 'Q':
-          sendNotice(nick, 'Goodbye! Type !lord to return.');
-          setPlayerOffline(nick);
-          clearState(nick);
-          break;
-        case '?': showForest(nick); break;
-        default:
-          sendNotice(nick, 'The Forest - L,H,S,R,Q');
-          break;
+      {
+        const player = loadPlayer(nick);
+        const hasHorse = player && player.horse !== HORSE_NONE;
+
+        switch (cmdLower) {
+          case 'l': case 'L': startFight(nick); break;
+          case 'h': case 'H': showHealer(nick); break;
+          case 's': case 'S': showStats(nick); break;
+          case 'r': case 'R': showMainMenu(nick); break;
+          case 't': case 'T':
+            if (hasHorse) {
+              showDarkCloak(nick);
+            } else {
+              sendNotice(nick, 'The Forest - L,H,S,R,Q');
+            }
+            break;
+          case 'q': case 'Q':
+            sendNotice(nick, 'Goodbye! Type !lord to return.');
+            setPlayerOffline(nick);
+            clearState(nick);
+            break;
+          case '?': showForest(nick); break;
+          default:
+            sendNotice(nick, hasHorse ? 'The Forest - L,H,S,R,T,Q (? for menu)' : 'The Forest - L,H,S,R,Q');
+            break;
+        }
       }
       break;
 
@@ -2446,26 +3726,227 @@ function handleCommand(nick, cmd, args) {
       break;
 
     case PLAYER_STATES.FOREST_EVENT:
-      switch (cmdLower) {
-        case 'r': case 'R':
-          flushQueue(nick);
-          {
-            const us = getState(nick);
-            const nextState = us.temp.nextState;
-            us.temp = {};
-            us.displayMode = false;
-            if (nextState === 'dwarf') {
-              showDwarfGames(nick);
-            } else if (nextState === 'hut') {
-              showForestHut(nick);
-            } else {
-              showForest(nick);
-            }
+      {
+        const us = getState(nick);
+        const event = us.temp.eventOutcome;
+
+        if (event && event.prompt === 'oldman') {
+          if (cmdLower === 'y') {
+            const result = game.processForestEvent(nick, { type: 'oldman_help' });
+            const lines = ['', border(), r('  EVENT: Old Man'), border(), ''];
+            result.outcomes.forEach(o => lines.push('  ' + o));
+            lines.push('');
+            sendLines(nick, lines);
+            savePlayer(nick, loadPlayer(nick));
+            showForest(nick);
+          } else if (cmdLower === 'n') {
+            const result = game.processForestEvent(nick, { type: 'oldman_ignore' });
+            const lines = ['', border(), r('  EVENT: Old Man'), border(), ''];
+            result.outcomes.forEach(o => lines.push('  ' + o));
+            lines.push('');
+            sendLines(nick, lines);
+            showForest(nick);
+          } else if (cmdLower === '?') {
+            sendLines(nick, [
+              '',
+              border(),
+              r('  EVENT: Old Man'),
+              border(),
+              '',
+              '  You come across an old man. He seems confused and',
+              '  asks if you would direct him to the Inn. You know',
+              '  that if you do, you will lose time for one fight',
+              '  today.',
+              '',
+              '  Do you take the old man? [Y/N] (? for menu)',
+              ''
+            ]);
+          } else {
+            sendNotice(nick, 'Do you take the old man? [Y/N] (? for menu)');
           }
           break;
-        default:
-          sendNotice(nick, 'Press R to continue.');
+        }
+
+        if (event && event.prompt === 'scroll') {
+          if (cmdLower === 's') {
+            const result = game.processForestEvent(nick, { type: 'scroll_save' });
+            const lines = ['', border(), r('  EVENT: ' + result.event), border(), ''];
+            result.outcomes.forEach(o => lines.push('  ' + o));
+            lines.push('');
+            sendLines(nick, lines);
+          } else if (cmdLower === 'i') {
+            const result = game.processForestEvent(nick, { type: 'scroll_ignore' });
+            const lines = ['', border(), r('  EVENT: ' + result.event), border(), ''];
+            result.outcomes.forEach(o => lines.push('  ' + o));
+            lines.push('');
+            sendLines(nick, lines);
+            showForest(nick);
+          } else if (cmdLower === '?') {
+            sendLines(nick, [
+              '',
+              border(),
+              r('  EVENT: Scroll'),
+              border(),
+              '',
+              '  The scroll reads:',
+              '  I am to wed one against my will. My father tells me',
+              '  I am selfish, because this political marriage will',
+              '  bring peace. Get me out of here, -a prisoner of war',
+              '',
+              '  (S)ave her',
+              '  (I)gnore the girl',
+              '',
+              '  Well? [S] (? for menu)',
+              ''
+            ]);
+          } else {
+            sendNotice(nick, 'Well? [S] (? for menu)');
+          }
           break;
+        }
+
+        if (event && event.prompt === 'scroll_location') {
+          const locations = ['c', 'f', 'g', 'p', 'd'];
+          if (locations.includes(cmdLower)) {
+            const result = game.processScrollRescue(nick, cmdLower);
+            const lines = ['', border(), r('  EVENT: Rescue'), border(), ''];
+            result.outcomes.forEach(o => lines.push('  ' + o));
+            lines.push('');
+            sendLines(nick, lines);
+            showForest(nick);
+          } else if (cmdLower === '?') {
+            sendLines(nick, [
+              '',
+              border(),
+              r('  EVENT: Rescue'),
+              border(),
+              '',
+              "  You're quite a hero. Unfortunately, the girl seems",
+              "  to have forgotten the return address. You'll have",
+              "  to guess.",
+              '',
+              '  (C)astle Coldrake',
+              '  (F)ortress Liddux',
+              '  (G)annon Keep',
+              '  (P)enyon Manor',
+              "  (D)ema's Lair",
+              '',
+              '  Where do we go now? [C/F/G/P/D] (? for menu)',
+              ''
+            ]);
+          } else {
+            sendNotice(nick, 'Where do we go now? [C/F/G/P/D] (? for menu)');
+          }
+          break;
+        }
+
+        if (event && event.prompt === 'fairy_blessing') {
+          if (cmdLower === 'g') {
+            const result = game.processForestEvent(nick, { type: 'fairy_gems' });
+            const lines = ['', border(), r('  EVENT: Fairy'), border(), ''];
+            result.outcomes.forEach(o => lines.push('  ' + o));
+            lines.push('');
+            sendLines(nick, lines);
+            savePlayer(nick, loadPlayer(nick));
+            showForest(nick);
+          } else if (cmdLower === 'h') {
+            const result = game.processForestEvent(nick, { type: 'fairy_horse' });
+            const lines = ['', border(), r('  EVENT: Fairy'), border(), ''];
+            result.outcomes.forEach(o => lines.push('  ' + o));
+            lines.push('');
+            sendLines(nick, lines);
+            savePlayer(nick, loadPlayer(nick));
+            showForest(nick);
+          } else if (cmdLower === 'k') {
+            const result = game.processForestEvent(nick, { type: 'fairy_kiss' });
+            const lines = ['', border(), r('  EVENT: Fairy'), border(), ''];
+            result.outcomes.forEach(o => lines.push('  ' + o));
+            lines.push('');
+            sendLines(nick, lines);
+            savePlayer(nick, loadPlayer(nick));
+            showForest(nick);
+          } else if (cmdLower === '?') {
+            sendLines(nick, [
+              '',
+              border(),
+              r('  EVENT: Fairy'),
+              border(),
+              '',
+              '  A tiny fairy appears before you!',
+              '"Bless me!" you implore the small figure.',
+              '',
+              '"Very well." she agrees. "But we\'re still',
+              'angry at you! What would you like?"',
+              '',
+              '  (G)ems - Pray for fortune',
+              '  (H)orse - Seek a companion',
+              '  (K)iss - Receive healing',
+              '',
+              '  Well? [G/H/K] (? for menu)',
+              ''
+            ]);
+          } else {
+            sendNotice(nick, 'Well? [G/H/K] (? for menu)');
+          }
+          break;
+        }
+
+        if (event && event.prompt === 'hag') {
+          if (cmdLower === 'y') {
+            const result = game.processForestEvent(nick, { type: 'hag_yes' });
+            const lines = ['', border(), r('  EVENT: Old Hag'), border(), ''];
+            result.outcomes.forEach(o => lines.push('  ' + o));
+            lines.push('');
+            sendLines(nick, lines);
+            savePlayer(nick, loadPlayer(nick));
+            showForest(nick);
+          } else if (cmdLower === 'n') {
+            const result = game.processForestEvent(nick, { type: 'hag_no' });
+            const lines = ['', border(), r('  EVENT: Old Hag'), border(), ''];
+            result.outcomes.forEach(o => lines.push('  ' + o));
+            lines.push('');
+            sendLines(nick, lines);
+            showForest(nick);
+          } else if (cmdLower === '?') {
+            sendLines(nick, [
+              '',
+              border(),
+              r('  EVENT: Old Hag'),
+              border(),
+              '',
+              '  You come across an ugly old hag.',
+              '"Give me a gem and I will completely heal you',
+              'warrior!" she screeches.',
+              '',
+              '  Give her the gem? [Y/N] (? for menu)',
+              ''
+            ]);
+          } else {
+            sendNotice(nick, 'Give her the gem? [Y/N] (? for menu)');
+          }
+          break;
+        }
+
+        switch (cmdLower) {
+          case 'r': case 'R':
+            flushQueue(nick);
+            {
+              const nextState = us.temp.nextState;
+              us.temp = {};
+              us.displayMode = false;
+              if (nextState === 'dwarf') {
+                showDwarfGames(nick);
+              } else if (nextState === 'hut') {
+                showForestHut(nick);
+              } else {
+                showForest(nick);
+              }
+            }
+            break;
+          default:
+            sendNotice(nick, 'Press R to continue.');
+            break;
+        }
       }
       break;
 
@@ -2794,6 +4275,9 @@ function handleCommand(nick, cmd, args) {
         const result = game.healAtHealer(nick);
         if (result.success) {
           sendNotice(nick, 'You are fully healed! (Cost: ' + g(result.cost) + ' gold)');
+          if (result.charmGain) {
+            sendNotice(nick, 'You gain an extra charm point!');
+          }
         } else {
           sendNotice(nick, result.error);
         }
@@ -2804,24 +4288,561 @@ function handleCommand(nick, cmd, args) {
       break;
 
     case PLAYER_STATES.INN:
-      if (cmdLower === 'r' || cmdLower === 'q') {
-        showMainMenu(nick);
+      {
+        const stats = game.getPlayerStats(nick);
+        if (cmdLower === 'r' || cmdLower === 'q') {
+          showMainMenu(nick);
+          break;
+        }
+        if (cmdLower === 'c') {
+          showInnConvo(nick);
+          break;
+        }
+        if (cmdLower === 'f' && stats.sex === 0) {
+          showViolet(nick);
+          break;
+        }
+        if (cmdLower === 't') {
+          showInnBartender(nick);
+          break;
+        }
+        if (cmdLower === 'g') {
+          showInnRoom(nick);
+          break;
+        }
+        if (cmdLower === 'v') {
+          showStats(nick);
+          break;
+        }
+        if (cmdLower === 'h') {
+          showSethAble(nick);
+          break;
+        }
+        if (cmdLower === 'm') {
+          setState(nick, PLAYER_STATES.INN_CONVO_ADD);
+          sendLines(nick, [
+            '',
+            '  Share your feelings now... (Max 75 char!)',
+            ''
+          ]);
+          break;
+        }
+        if (cmdLower === 'l') {
+          game.leaveInn(nick);
+          sendNotice(nick, 'You leave the inn. You are no longer protected.');
+          showInn(nick);
+          break;
+        }
+        sendNotice(nick, 'The Inn - (C,F,T,G,V,H,M,R) (? for menu)');
         break;
       }
-      if (cmdLower === 's') {
+
+    case PLAYER_STATES.INN_CONVO:
+      if (cmdLower === 'c' || cmdLower === '') {
+        showInn(nick);
+        break;
+      }
+      if (cmdLower === 'a') {
+        setState(nick, PLAYER_STATES.INN_CONVO_ADD);
+        sendLines(nick, [
+          '',
+          '  Share your feelings now... (Max 75 char!)',
+          ''
+        ]);
+        break;
+      }
+      showInn(nick);
+      break;
+
+    case PLAYER_STATES.INN_CONVO_ADD:
+      {
+        const player = loadPlayer(nick);
+        const msg = cmd.trim().substring(0, 75);
+        if (msg && player) {
+          innNewConvo.push(player.name);
+          innNewConvo.push(msg);
+          sendNotice(nick, 'Your words echo through the inn...');
+        }
+        showInnConvo(nick);
+      }
+      break;
+
+    case PLAYER_STATES.INN_BARTENDER:
+      if (cmdLower === 'r') {
+        showInn(nick);
+        break;
+      }
+      if (cmdLower === 'v') {
+        showViolet(nick);
+        break;
+      }
+      if (cmdLower === 'g') {
+        showInnBartenderGems(nick);
+        break;
+      }
+      if (cmdLower === 'b') {
+        showInnBartenderBribe(nick);
+        break;
+      }
+      sendNotice(nick, 'Bartender - V,G,B,R');
+      showInn(nick);
+      break;
+
+    case PLAYER_STATES.INN_BARTENDER_GEMS:
+      if (cmdLower === 'r') {
+        showInn(nick);
+        break;
+      }
+      const gemCount = parseInt(cmd);
+      if (!isNaN(gemCount) && gemCount > 0) {
+        setState(nick, PLAYER_STATES.INN_BARTENDER_GEMS_BUY);
+        const userState = getState(nick);
+        userState.temp = { gemCount: gemCount };
+        sendLines(nick, [
+          '',
+          '  The bartender retrieves a steaming tankard from the',
+          '  back room. Before you drink it, what do you',
+          '  wish for?',
+          '',
+          w('(H)it Points'),
+          w('(S)trength'),
+          w('(V)itality'),
+          ''
+        ]);
+        break;
+      }
+      showInnBartenderGems(nick);
+      break;
+
+    case PLAYER_STATES.INN_BARTENDER_GEMS_BUY:
+      {
+        const userState = getState(nick);
+        const gemCount = userState.temp?.gemCount || 0;
+        const player = loadPlayer(nick);
+        const lines = [''];
+
+        if (gemCount > player.gems / 2) {
+          lines.push('You don\'t have that many gems!');
+        } else {
+          player.gems -= gemCount * 2;
+
+          switch (cmdLower) {
+            case 'h':
+              const hpGain = gemCount * 10;
+              player.hp = Math.min(player.maxhp, player.hp + hpGain);
+              lines.push('YOU DRINK THE BREW AND YOUR SOUL REJOICES!');
+              lines.push('You gain ' + hpGain + ' HP!');
+              break;
+            case 's':
+              player.str += gemCount;
+              lines.push('YOU DRINK THE BREW AND YOUR SOUL REJOICES!');
+              lines.push('You gain ' + gemCount + ' STR!');
+              break;
+            case 'v':
+              player.maxhp += gemCount * 5;
+              player.hp += gemCount * 5;
+              lines.push('YOU DRINK THE BREW AND YOUR SOUL REJOICES!');
+              lines.push('You gain ' + (gemCount * 5) + ' MAX HP!');
+              break;
+            default:
+              player.gems += gemCount * 2;
+              sendNotice(nick, 'Invalid choice!');
+              showInnBartenderGems(nick);
+              return;
+          }
+          savePlayer(nick, player);
+        }
+        lines.push('');
+        sendLines(nick, lines);
+        showInn(nick);
+      }
+      break;
+
+    case PLAYER_STATES.INN_BARTENDER_BRIBE:
+      if (cmdLower === 'n' || cmdLower === 'r') {
+        sendNotice(nick, '"Fine... forget I offered that deal to you..."');
+        showInn(nick);
+        break;
+      }
+      if (cmdLower === 'y') {
+        const player = loadPlayer(nick);
+        const bribeCost = player.level * 1600;
+        if (player.gold < bribeCost) {
+          sendNotice(nick, '"Hey! You slobbering idiot! You don\'t have that much gold!"');
+        } else {
+          player.gold -= bribeCost;
+          savePlayer(nick, player);
+          sendNotice(nick, 'You pay ' + bribeCost + ' gold to the bartender.');
+          sendNotice(nick, '"Now go get \'em, tiger!"');
+        }
+        showInn(nick);
+        break;
+      }
+      showInn(nick);
+      break;
+
+    case PLAYER_STATES.INN_SETH:
+      {
+        const us = getState(nick);
+        const returnTo = us.temp?.sethReturn || 'inn';
+        const returnFn = returnTo === 'darkcloak' ? showDarkCloak : showInn;
+
+        if (cmdLower === 'r') {
+          returnFn(nick);
+          break;
+        }
+        if (cmdLower === 'a') {
+          sethSings(nick);
+          break;
+        }
+        if (cmdLower === '?' || cmdLower === 'f') {
+          showSethAble(nick, returnTo);
+          if (cmdLower === '?') break;
+        }
+        if (cmdLower === 'f') {
+          const player = loadPlayer(nick);
+          const now = Date.now();
+
+          if (player.violet_timer && now < player.violet_timer) {
+            const timeLeft = player.violet_timer - now;
+            const hoursLeft = Math.floor(timeLeft / 3600000);
+            const minsLeft = Math.floor((timeLeft % 3600000) / 60000);
+            sendNotice(nick, 'Seth says "Come back later, darling. Try again in ' + hoursLeft + 'h ' + minsLeft + 'm"');
+            returnFn(nick);
+            break;
+          }
+
+        const sethLines = [''];
+        const c = player ? player.charm : 1;
+        const lvl = player ? player.level : 1;
+        let success = false;
+
+        switch (cmdLower) {
+          case 'n':
+            sethLines.push('"Perhaps another time then..."');
+            break;
+          case 'w':
+            if (c >= 1) {
+              const xpEarned = 5 * lvl;
+              sethLines.push('`%You wink at Seth seductively..');
+              sethLines.push('He blushes and smiles!!');
+              sethLines.push('You are making progress with him!');
+              sethLines.push('');
+              sethLines.push('You receive ' + xpEarned + ' experience!');
+              if (player) {
+                player.xp = Math.min(10000000, player.xp + xpEarned);
+                player.violet_timer = now + (24 * 60 * 60 * 1000);
+                savePlayer(nick, player);
+              }
+              success = true;
+            } else {
+              sethLines.push('Seth ignores your wink.');
+            }
+            break;
+          case 'k':
+            if (c >= 2) {
+              sethLines.push('You take Seth\'s hand and kiss it.');
+              sethLines.push('He blushes deeply!');
+              sethLines.push('');
+              sethLines.push('You receive 10 experience!');
+              if (player) {
+                player.xp = Math.min(10000000, player.xp + 10);
+                player.violet_timer = now + (24 * 60 * 60 * 1000);
+                savePlayer(nick, player);
+              }
+              success = true;
+            } else {
+              sethLines.push('Seth pulls his hand away.');
+            }
+            break;
+          case 'p':
+            if (c >= 4) {
+              sethLines.push('You lean in and peck Seth on the lips.');
+              sethLines.push('He smiles warmly at you!');
+              sethLines.push('');
+              sethLines.push('You receive 20 experience!');
+              if (player) {
+                player.xp = Math.min(10000000, player.xp + 20);
+                player.violet_timer = now + (24 * 60 * 60 * 1000);
+                savePlayer(nick, player);
+              }
+              success = true;
+            } else {
+              sethLines.push('Seth turns away coldly.');
+            }
+            break;
+          case 's':
+            if (c >= 8) {
+              sethLines.push('You pat your lap and Seth sits down.');
+              sethLines.push('He snuggles up to you!');
+              sethLines.push('');
+              sethLines.push('You receive 30 experience!');
+              if (player) {
+                player.xp = Math.min(10000000, player.xp + 30);
+                player.violet_timer = now + (24 * 60 * 60 * 1000);
+                savePlayer(nick, player);
+              }
+              success = true;
+            } else {
+              sethLines.push('"I hardly know you!" Seth scoffs.');
+            }
+            break;
+          case 'g':
+            if (c >= 16) {
+              sethLines.push('You grab Seth\'s backside!');
+              sethLines.push('"Ooh, you bad boy!" He giggles.');
+              sethLines.push('');
+              sethLines.push('You receive 40 experience!');
+              if (player) {
+                player.xp = Math.min(10000000, player.xp + 40);
+                player.violet_timer = now + (24 * 60 * 60 * 1000);
+                savePlayer(nick, player);
+              }
+              success = true;
+            } else {
+              sethLines.push('Seth slaps your hand away!');
+            }
+            break;
+          case 'c':
+            if (c >= 32) {
+              if (random(1, 100) > 70) {
+                sethLines.push('You sweep Seth off his feet...');
+                sethLines.push('You take Seth upstairs...');
+                sethLines.push('');
+                sethLines.push('You receive 240 experience!');
+                if (player) {
+                  player.xp = Math.min(10000000, player.xp + 240);
+                  player.lays += 1;
+                  player.violet_timer = now + (24 * 60 * 60 * 1000);
+                  savePlayer(nick, player);
+                }
+                success = true;
+              } else {
+                sethLines.push('"Maybe another time, dear..."');
+                sethLines.push('Seth giggles and walks away.');
+              }
+            } else {
+              sethLines.push('Seth gives you a disapproving look.');
+            }
+            break;
+          case 'm':
+            if (c >= 100) {
+              sethLines.push('"Yes! A thousand times yes!"');
+              sethLines.push('You and Seth are now wed!');
+              sethLines.push('');
+              sethLines.push('You receive 1000 experience!');
+              if (player) {
+                player.xp = Math.min(10000000, player.xp + 1000);
+                player.marriedto = 'Seth';
+                player.violet_timer = now + (24 * 60 * 60 * 1000);
+                savePlayer(nick, player);
+              }
+              success = true;
+            } else {
+              sethLines.push('"You need at least 100 charm to marry me!"');
+            }
+            break;
+          default:
+            sendNotice(nick, 'Seth - (N)ever mind (W)ink (K)iss (P)eck (S)it (G)rab (C)arry (M)arry (R)eturn (? for menu)');
+            showSethAble(nick, returnTo);
+            return;
+        }
+
+        sethLines.push('');
+        sendLines(nick, sethLines);
+        returnFn(nick);
+        break;
+      }
+      sendNotice(nick, 'Seth Able - (A)sk to sing (F)lirt (R)eturn');
+      returnFn(nick);
+      break;
+    }
+
+    case PLAYER_STATES.INN_VIOLET:
+      {
+        const us = getState(nick);
+        const returnTo = us.temp?.violetReturn || 'inn';
+        const returnFn = returnTo === 'darkcloak' ? showDarkCloak : showInn;
+
+        if (cmdLower === 'r') {
+          returnFn(nick);
+          break;
+        }
+        if (cmdLower === '?') {
+          showViolet(nick, returnTo);
+          break;
+        }
+
+        const player = loadPlayer(nick);
+        const now = Date.now();
+
+        if (player.violet_timer && now < player.violet_timer) {
+          const timeLeft = player.violet_timer - now;
+          const hoursLeft = Math.floor(timeLeft / 3600000);
+          const minsLeft = Math.floor((timeLeft % 3600000) / 60000);
+          sendNotice(nick, 'Violet says "Come back later, honey. Try again in ' + hoursLeft + 'h ' + minsLeft + 'm"');
+          returnFn(nick);
+          break;
+        }
+
+        const violetLines = [''];
+        const c = player ? player.charm : 1;
+        const lvl = player ? player.level : 1;
+        let success = false;
+
+        switch (cmdLower) {
+          case 'n':
+            violetLines.push('"Perhaps another time then..."');
+            break;
+          case 'w':
+            if (c >= 1) {
+              const xpEarned = 5 * lvl;
+              violetLines.push('`%You wink at Violet seductively..');
+              violetLines.push('She blushes and smiles!!');
+              violetLines.push('You are making progress with her!');
+              violetLines.push('');
+              violetLines.push('You receive ' + xpEarned + ' experience!');
+              if (player) {
+                player.xp = Math.min(10000000, player.xp + xpEarned);
+                player.violet_timer = now + (24 * 60 * 60 * 1000);
+                savePlayer(nick, player);
+              }
+              success = true;
+            } else {
+              violetLines.push('Violet ignores your wink.');
+            }
+            break;
+          case 'k':
+            if (c >= 2) {
+              violetLines.push('You take Violet\'s hand and kiss it.');
+              violetLines.push('She blushes deeply!');
+              violetLines.push('');
+              violetLines.push('You receive 10 experience!');
+              if (player) {
+                player.xp = Math.min(10000000, player.xp + 10);
+                player.violet_timer = now + (24 * 60 * 60 * 1000);
+                savePlayer(nick, player);
+              }
+              success = true;
+            } else {
+              violetLines.push('Violet pulls her hand away.');
+            }
+            break;
+          case 'p':
+            if (c >= 4) {
+              violetLines.push('You lean in and peck Violet on the lips.');
+              violetLines.push('She smiles warmly at you!');
+              violetLines.push('');
+              violetLines.push('You receive 20 experience!');
+              if (player) {
+                player.xp = Math.min(10000000, player.xp + 20);
+                player.violet_timer = now + (24 * 60 * 60 * 1000);
+                savePlayer(nick, player);
+              }
+              success = true;
+            } else {
+              violetLines.push('Violet turns away coldly.');
+            }
+            break;
+          case 's':
+            if (c >= 8) {
+              violetLines.push('You pat your lap and Violet sits down.');
+              violetLines.push('She snuggles up to you!');
+              violetLines.push('');
+              violetLines.push('You receive 30 experience!');
+              if (player) {
+                player.xp = Math.min(10000000, player.xp + 30);
+                player.violet_timer = now + (24 * 60 * 60 * 1000);
+                savePlayer(nick, player);
+              }
+              success = true;
+            } else {
+              violetLines.push('"I hardly know you!" Violet scoffs.');
+            }
+            break;
+          case 'g':
+            if (c >= 16) {
+              violetLines.push('You grab Violet\'s backside!');
+              violetLines.push('"Ooh, you bad boy!" She giggles.');
+              violetLines.push('');
+              violetLines.push('You receive 40 experience!');
+              if (player) {
+                player.xp = Math.min(10000000, player.xp + 40);
+                player.violet_timer = now + (24 * 60 * 60 * 1000);
+                savePlayer(nick, player);
+              }
+              success = true;
+            } else {
+              violetLines.push('Violet slaps your hand away!');
+            }
+            break;
+          case 'c':
+            if (c >= 32) {
+              if (random(1, 100) > 70) {
+                violetLines.push('You sweep Violet off her feet...');
+                violetLines.push('You take Violet upstairs...');
+                violetLines.push('');
+                violetLines.push('You receive 240 experience!');
+                if (player) {
+                  player.xp = Math.min(10000000, player.xp + 240);
+                  player.lays += 1;
+                  player.violet_timer = now + (24 * 60 * 60 * 1000);
+                  savePlayer(nick, player);
+                }
+                success = true;
+              } else {
+                violetLines.push('"Maybe another time, dear..."');
+                violetLines.push('Violet giggles and walks away.');
+              }
+            } else {
+              violetLines.push('Violet gives you a disapproving look.');
+            }
+            break;
+          case 'm':
+            if (c >= 100) {
+              violetLines.push('"Yes! A thousand times yes!"');
+              violetLines.push('You and Violet are now wed!');
+              violetLines.push('');
+              violetLines.push('You receive 1000 experience!');
+              if (player) {
+                player.xp = Math.min(10000000, player.xp + 1000);
+                player.marriedto = 'Violet';
+                player.violet_timer = now + (24 * 60 * 60 * 1000);
+                savePlayer(nick, player);
+              }
+              success = true;
+            } else {
+              violetLines.push('"You need at least 100 charm to marry me!"');
+            }
+            break;
+          default:
+            sendNotice(nick, 'Violet - (N)ever mind (W)ink (K)iss (P)eck (S)it (G)rab (C)arry (M)arry (R)eturn (? for menu)');
+            showViolet(nick, returnTo);
+            return;
+        }
+
+        violetLines.push('');
+        sendLines(nick, violetLines);
+        returnFn(nick);
+        break;
+      }
+
+    case PLAYER_STATES.INN_ROOM:
+      if (cmdLower === 'r' || cmdLower === 'n') {
+        showInn(nick);
+        break;
+      }
+      if (cmdLower === 'y') {
         const result = game.stayAtInn(nick);
         if (result.success) {
           sendNotice(nick, result.message);
         } else {
           sendNotice(nick, result.error);
         }
-      } else if (cmdLower === 'l') {
-        game.leaveInn(nick);
-        sendNotice(nick, 'You leave the inn. You are no longer protected.');
-      } else {
-        sendNotice(nick, 'The Inn - S,L,R,Q');
+        showInn(nick);
+        break;
       }
-      showInn(nick);
+      sendNotice(nick, 'Get a room - Y,N,R');
       break;
 
     case PLAYER_STATES.TAVERN:
@@ -2843,6 +4864,38 @@ function handleCommand(nick, cmd, args) {
       } else {
         sendNotice(nick, 'The Tavern - T,R,Q');
       }
+      break;
+
+    case PLAYER_STATES.DARK_CLOAK:
+      switch (cmdLower) {
+        case 'r':
+          showForest(nick);
+          break;
+        case 'c':
+          showInnConvo(nick);
+          break;
+        case 'd':
+          showNews(nick);
+          break;
+        case 'e':
+          showDarkCloakEtchings(nick);
+          break;
+        case 't':
+          showDarkCloakBartender(nick);
+          break;
+        case 'g':
+          showDarkCloakGamble(nick);
+          break;
+        case '?':
+          showDarkCloak(nick);
+          break;
+        default:
+          sendNotice(nick, 'Dark Cloak Tavern - C,D,E,T,G,R (? for menu)');
+      }
+      break;
+
+    case PLAYER_STATES.DARK_CLOAK_BARTENDER:
+      showDarkCloakBartenderMenu(nick, cmdLower);
       break;
 
     case PLAYER_STATES.TRAINING:

@@ -262,7 +262,9 @@ export const defaultPlayer = {
   mastered3: -1,
   baraks_visited_today: 0,
   killed_by: '',
-  skill_reset_timer: 0
+  skill_reset_timer: 0,
+  seenbard: 0,
+  violet_timer: 0
 };
 
 export const forestEvents = [
@@ -343,5 +345,35 @@ export const forestEvents = [
     chance: 2,
     message: 'You hear the voice of angels singing.',
     type: 'wierd'
+  },
+  {
+    name: 'Old Man',
+    chance: 5,
+    message: 'You come across an old man who seems lost.',
+    type: 'oldman'
+  },
+  {
+    name: 'Scroll',
+    chance: 5,
+    message: 'You stumble upon a dead bird with a scroll.',
+    type: 'scroll'
+  },
+  {
+    name: 'Old Hag',
+    chance: 3,
+    message: 'You come across an ugly old hag.',
+    type: 'hag'
+  },
+  {
+    name: 'Hammer Stone',
+    chance: 2,
+    message: 'You find a Hammer Stone!',
+    type: 'hammer'
+  },
+  {
+    name: 'Dark Cloak Tavern',
+    chance: 2,
+    message: 'Through the trees, you spot a faint light...',
+    type: 'darkcloak'
   }
 ];

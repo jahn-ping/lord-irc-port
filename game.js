@@ -2,6 +2,10 @@ import { config } from './config.js';
 import { weapons, armors, levelGains, masters, monsters, deathMessages, classNames, forestEvents } from './gameData.js';
 import { playerExists, loadPlayer, savePlayer, createPlayer, getAllPlayers } from './player.js';
 
+const HORSE_NONE = 0;
+const HORSE_WHITE = 1;
+const HORSE_BLACK = 2;
+
 function random(min, max) {
   return Math.floor(Math.random() * (max - min + 1)) + min;
 }
@@ -18,6 +22,11 @@ function clamp(val, min, max) {
 function getWeaponAttack(weaponNum) {
   const weapon = weapons[weaponNum - 1];
   return weapon ? weapon.attack : 0;
+}
+
+function getWeaponName(weaponNum) {
+  const weapon = weapons[weaponNum - 1];
+  return weapon ? weapon.name : 'Unknown';
 }
 
 function getArmorDefense(armorNum) {
@@ -212,9 +221,71 @@ export function processForestEvent(nick, event) {
       break;
       
     case 'fairy':
-      const healAmount = Math.floor(player.maxhp * random(20, 50) / 100);
-      player.hp = clamp(player.hp + healAmount, 1, player.maxhp);
-      result.outcomes.push('The fairy heals you for ' + healAmount + ' HP!');
+      result.outcomes.push('A tiny fairy appears before you!');
+      result.outcomes.push('"Bless me!" you implore the small figure.');
+      result.outcomes.push('');
+      result.outcomes.push('"Very well." she agrees. "But we\'re still');
+      result.outcomes.push('angry at you! What would you like?"');
+      result.outcomes.push('');
+      result.outcomes.push('(G)ems - Pray for fortune');
+      result.outcomes.push('(H)orse - Seek a companion');
+      result.outcomes.push('(K)iss - Receive healing');
+      result.outcomes.push('');
+      result.outcomes.push('Well? [G/H/K] (? for menu)');
+      result.prompt = 'fairy_blessing';
+      break;
+
+    case 'fairy_gems':
+      if (player.fairies > 0) {
+        const gemsCaught = random(1, 3);
+        player.gems += gemsCaught;
+        result.outcomes.push('"Very well." the fairy nods.');
+        result.outcomes.push('');
+        result.outcomes.push('A single tear rolls down her cheek and');
+        result.outcomes.push('transforms into a beautiful gem!');
+        result.outcomes.push('');
+        result.outcomes.push('You caught ' + gemsCaught + ' gem(s)!');
+      } else {
+        result.outcomes.push('You have no fairies to catch!');
+      }
+      result.autoContinue = true;
+      break;
+
+    case 'fairy_horse':
+      if (player.horse !== HORSE_NONE) {
+        result.outcomes.push('"Oh nevermind, you already have a horse."');
+      } else {
+        const roll = random(1, 100);
+        if (roll >= 50) {
+          player.horse = HORSE_WHITE;
+          result.outcomes.push('A pure white mare nudges your back!');
+          result.outcomes.push('');
+          result.outcomes.push('A COMPANION FOR YOUR JOURNEY!');
+          const fightsGain = Math.floor(500 * 0.25);
+          player.fights = clamp(player.fights + fightsGain, 0, 500);
+          result.outcomes.push('You gain ' + fightsGain + ' forest fights!');
+        } else {
+          player.horse = HORSE_BLACK;
+          result.outcomes.push('A shiny black stallion surfaces from the mist!');
+          result.outcomes.push('');
+          result.outcomes.push('A COMPANION FOR YOUR JOURNEY!');
+          const fightsGain = Math.floor(500 * 0.25);
+          player.fights = clamp(player.fights + fightsGain, 0, 500);
+          result.outcomes.push('You gain ' + fightsGain + ' forest fights!');
+        }
+      }
+      result.autoContinue = true;
+      break;
+
+    case 'fairy_kiss':
+      const lvl = player.level;
+      const xpEarned = lvl * lvl * 10;
+      player.xp = clamp(player.xp + xpEarned, 0, config.maxXP);
+      result.outcomes.push('The fairy kisses your forehead!');
+      result.outcomes.push('');
+      result.outcomes.push('You feel refreshed and wiser!');
+      result.outcomes.push('You receive ' + xpEarned + ' experience!');
+      result.autoContinue = true;
       break;
       
     case 'nothing':
@@ -271,10 +342,276 @@ export function processForestEvent(nick, event) {
       result.outcomes.push('');
       result.outcomes.push('You find ' + weirdGems + ' GEMS!');
       break;
+
+    case 'oldman':
+      if (player.sex === 0) {
+        const roll = random(1, 100);
+        if (roll > 90) {
+          if (roll > 95) {
+            result.outcomes.push('** MEGA EVENT IN THE FOREST **');
+            result.outcomes.push('You are whacked with a pretty stick by the old man!');
+            result.outcomes.push('He giggles and runs away!');
+            result.outcomes.push('');
+            result.outcomes.push('YOU GET 5 CHARM!');
+            player.charm = clamp(player.charm + 5, 1, 100);
+            result.autoContinue = true;
+          } else {
+            result.outcomes.push('** MEGA EVENT IN THE FOREST **');
+            result.outcomes.push('You are whacked with an ugly stick by the old man!');
+            result.outcomes.push('He giggles and runs away!');
+            result.outcomes.push('');
+            result.outcomes.push('You lose 1 CHARM!');
+            player.charm = clamp(player.charm - 1, 0, 100);
+            result.autoContinue = true;
+          }
+        } else {
+          result.outcomes.push('You come across an old man. He seems confused and');
+          result.outcomes.push('asks if you would direct him to the Inn. You know');
+          result.outcomes.push('that if you do, you will lose time for one fight');
+          result.outcomes.push('today.');
+          result.outcomes.push('');
+          result.outcomes.push('Do you take the old man? [Y/N] (? for menu)');
+          result.prompt = 'oldman';
+        }
+      } else {
+        result.outcomes.push('You come across an old man who seems confused.');
+        result.outcomes.push('He mumbles something and wanders off...');
+        result.autoContinue = true;
+      }
+      break;
+
+    case 'oldman_help':
+      if (player.sex === 0) {
+        const goldGain = 500 * player.level;
+        player.gold = clamp(player.gold + goldGain, 0, config.maxGold);
+        player.charm = clamp(player.charm + 1, 1, 100);
+        return {
+          event: 'Old Man',
+          message: 'You help the old man',
+          type: 'oldman_help',
+          outcomes: [
+            'You take the old man to the Inn. He is pleased with',
+            'you, and gives you ' + goldGain + ' gold!',
+            '',
+            '**CHARM GOES UP BY 1**',
+            '',
+            'You return to the forest.'
+          ],
+          autoContinue: true
+        };
+      }
+      break;
+
+    case 'oldman_ignore':
+      if (player.sex === 0) {
+        return {
+          event: 'Old Man',
+          message: 'You ignore the old man',
+          type: 'oldman_ignore',
+          outcomes: [
+            'He grimaces as you walk away.',
+            '',
+            'You return to the forest.'
+          ],
+          autoContinue: true
+        };
+      }
+      break;
+
+    case 'scroll':
+      result.outcomes.push('');
+      result.outcomes.push('(S)ave her');
+      result.outcomes.push('(I)gnore the girl');
+      result.outcomes.push('');
+      result.outcomes.push('Well? [S] (? for menu)');
+      result.prompt = 'scroll';
+      break;
+
+    case 'scroll_ignore':
+      return {
+        event: 'Scroll',
+        message: 'You ignore the damsel',
+        type: 'scroll_ignore',
+        outcomes: [
+          'You quickly put down the note.',
+          'Some things are best left alone.',
+          '',
+          'You return to the forest.'
+        ],
+        autoContinue: true
+      };
+
+    case 'scroll_save':
+      return {
+        event: 'Scroll',
+        message: 'You decide to save her',
+        type: 'scroll_save',
+        prompt: 'scroll_location',
+        outcomes: [
+          '',
+          'You\'re quite a hero. Unfortunately, the girl seems',
+          'to have forgotten the return address. You\'ll have',
+          'to guess.',
+          '',
+          '(C)astle Coldrake',
+          '(F)ortress Liddux',
+          '(G)annon Keep',
+          '(P)enyon Manor',
+          "(D)ema's Lair",
+          '',
+          'Where do we go now? [C/F/G/P/D] (? for menu)'
+        ]
+      };
+
+    case 'hag':
+      if (player.gems > 0) {
+        result.outcomes.push('"Give me a gem and I will completely heal you');
+        result.outcomes.push('warrior!" she screeches.');
+        result.outcomes.push('');
+        result.outcomes.push('Give her the gem? [Y/N] (? for menu)');
+        result.prompt = 'hag';
+      } else {
+        result.outcomes.push('"Give me a gem and I will completely heal you');
+        result.outcomes.push('warrior!" she screeches.');
+        result.outcomes.push('');
+        result.outcomes.push('You have no gems!');
+        result.outcomes.push('');
+        result.outcomes.push('"Hurumph!" the old woman grunts sourly as you leave.');
+        result.autoContinue = true;
+      }
+      break;
+
+    case 'hag_yes':
+      if (player.gems > 0) {
+        player.gems -= 1;
+        const newMaxHp = player.maxhp + 1;
+        player.maxhp = newMaxHp;
+        player.hp = newMaxHp;
+        return {
+          event: 'Old Hag',
+          message: 'You give her a gem',
+          type: 'hag_yes',
+          outcomes: [
+            'You give her a gem. She waves her wand strangely.',
+            '',
+            'YOU FEEL BETTER',
+            '',
+            '** MAX HP GOES UP BY 1 **',
+            '',
+            'You return to the forest.'
+          ],
+          autoContinue: true
+        };
+      }
+      return {
+        event: 'Old Hag',
+        message: 'You have no gems',
+        type: 'hag_no',
+        outcomes: [
+          'You have no gems!',
+          '',
+          '"Hurumph!" the old woman grunts sourly as you leave.',
+          '',
+          'You return to the forest.'
+        ],
+        autoContinue: true
+      };
+
+    case 'hag_no':
+      return {
+        event: 'Old Hag',
+        message: 'You decline the hag',
+        type: 'hag_no',
+        outcomes: [
+          '"Hurumph!" the old woman grunts sourly as you leave.',
+          '',
+          'You return to the forest.'
+        ],
+        autoContinue: true
+      };
+
+    case 'hammer':
+      result.outcomes.push('As is the tradition, you break it in two with your');
+      result.outcomes.push(getWeaponName(player.weapon_num) + '. Your weapon tingles!');
+      result.outcomes.push('');
+      result.outcomes.push('** ATTACK STRENGTH RAISED **');
+      player.str += 1;
+      result.autoContinue = true;
+      break;
+
+    case 'darkcloak':
+      result.outcomes.push('A blazing fire warms your heart as well as your body');
+      result.outcomes.push('in this fragrant roadhouse. Many a wary traveler has');
+      result.outcomes.push('had the good fortune to find this cozy hostel, to');
+      result.outcomes.push('escape the harsh reality of the dense forest for a');
+      result.outcomes.push('few moments.');
+      result.prompt = 'darkcloak';
+      break;
   }
-  
+
   savePlayer(nick, player);
   return result;
+}
+
+export function processScrollRescue(nick, location) {
+  const player = loadPlayer(nick);
+  if (!player) return null;
+
+  const locations = ['c', 'f', 'g', 'p', 'd'];
+  const correctLocation = locations[random(0, locations.length - 1)];
+  const success = location.toLowerCase() === correctLocation;
+
+  const outcomes = [];
+
+  outcomes.push('');
+  outcomes.push('****************************************');
+  outcomes.push('             THE RESCUE');
+  outcomes.push('****************************************');
+  outcomes.push('');
+
+  if (success) {
+    const xpGain = 20 * player.level;
+    const gemsGain = 3 * player.level;
+    player.xp = clamp(player.xp + xpGain, 0, config.maxXP);
+    player.gems = clamp(player.gems + gemsGain, 0, 999999);
+    outcomes.push('THE DOOR SWINGS WIDE OPEN!');
+    outcomes.push('');
+    outcomes.push('"You\'ve come for me!" shouts an overjoyed girl.');
+    outcomes.push('');
+    outcomes.push('You breath a sigh of relief.');
+    outcomes.push('');
+    outcomes.push('The girl eyes you dreamily...');
+    outcomes.push('');
+    outcomes.push('YOU GET ' + xpGain + ' EXPERIENCE!');
+    outcomes.push('YOU GET ' + gemsGain + ' GEMS!');
+    savePlayer(nick, player);
+  } else {
+    const hpLoss = Math.floor(player.maxhp * 0.25);
+    const newHp = Math.max(1, player.hp - hpLoss);
+    player.hp = newHp;
+    outcomes.push('THE DOOR SWINGS WIDE OPEN!');
+    outcomes.push('');
+    outcomes.push('The room is empty, save a giant chest in the middle.');
+    outcomes.push('');
+    outcomes.push('"Help me! I\'m in here!" a voice pleads from the chest.');
+    outcomes.push('');
+    outcomes.push('You open the chest...');
+    outcomes.push('');
+    outcomes.push('"MY GOD! A HALF HUMAN HALF TROLL WOMAN! NO!"');
+    outcomes.push('');
+    outcomes.push('You are violated by this hairy beast...');
+    outcomes.push('');
+    outcomes.push('YOU WEAKLY CRAWL AWAY...');
+    outcomes.push('');
+    outcomes.push('You lose ' + hpLoss + ' HP!');
+    savePlayer(nick, player);
+  }
+
+  return {
+    event: 'Rescue',
+    outcomes: outcomes,
+    autoContinue: true
+  };
 }
 
 export function decrementFights(nick) {
@@ -577,23 +914,27 @@ export function withdrawBank(nick, amount) {
 export function healAtHealer(nick) {
   const player = loadPlayer(nick);
   if (!player) return { error: 'Player not found!' };
-  
+
   const cost = player.level * 5;
-  
+
   if (player.hp >= player.maxhp) {
     return { error: 'You are already at full health!' };
   }
-  
+
   if (player.gold < cost) {
     return { error: `Not enough gold! Cost: ${cost}, You have: ${player.gold}` };
   }
-  
+
   player.gold -= cost;
   player.hp = player.maxhp;
-  
+
+  if (player.sex === 0) {
+    player.charm = clamp(player.charm + 1, 1, 100);
+  }
+
   savePlayer(nick, player);
-  
-  return { success: true, cost, hp: player.hp };
+
+  return { success: true, cost, hp: player.hp, charmGain: player.sex === 0 };
 }
 
 export function stayAtInn(nick) {
