@@ -52,6 +52,7 @@ const PLAYER_STATES = {
   INN_SETH: 'inn_seth',
   INN_VIOLET: 'inn_violet',
   INN_ROOM: 'inn_room',
+  INN_ROOM_ONLY: 'inn_room_only',
   INN_STATS: 'inn_stats',
   INN_NEWS: 'inn_news',
   INN_BARTENDER: 'inn_bartender',
@@ -911,24 +912,32 @@ function showInn(nick) {
     '',
     '  Legend of the Red Dragon - The Inn',
     border(),
-    '  You enter the inn and are immediately hailed by',
-    '  several of the patrons. You respond with a wave and',
-    '  scan the room. The room is filled with smoke from',
-    '  the torches that line the walls. Oaken tables and',
-    '  chairs are scattered across the room. You smile as',
-    '  the well-rounded Violet brushes by you....',
     ''
   ];
 
   if (player.stayinn) {
-    lines.push('  You are currently staying at the inn.');
-    lines.push('  You are safe from most attacks.');
+    lines.push('  You are in your room at the inn.');
+    lines.push('  You are safe from attacks, but you must leave');
+    lines.push('  to do anything else.');
     lines.push('');
     lines.push(w('(L)eave the inn'));
-  } else {
-    lines.push('  Room rate: ' + g('400') + ' gold/night');
+    lines.push('');
+    lines.push(statLine(nick));
+    lines.push(r('The Inn - Room') + w('  (L) (? for menu)'));
+    lines.push('');
+    sendLines(nick, lines);
+    setState(nick, PLAYER_STATES.INN_ROOM_ONLY);
+    return;
   }
 
+  lines.push('  You enter the inn and are immediately hailed by');
+  lines.push('  several of the patrons. You respond with a wave and');
+  lines.push('  scan the room. The room is filled with smoke from');
+  lines.push('  the torches that line the walls. Oaken tables and');
+  lines.push('  chairs are scattered across the room. You smile as');
+  lines.push('  the well-rounded Violet brushes by you....');
+  lines.push('');
+  lines.push('  Room rate: ' + g('400') + ' gold/night');
   lines.push('');
   lines.push(w('(C)onverse with patrons'));
 
@@ -964,7 +973,6 @@ function showInn(nick) {
     lines.push(r('The Inn') + w('  (C,F,T,G,V,H,M,R) (? for menu)'));
   }
   lines.push('');
-
   sendLines(nick, lines);
   setState(nick, PLAYER_STATES.INN);
 }
@@ -5543,6 +5551,22 @@ function handleCommand(nick, cmd, args) {
       }
       clearMessageQueue(nick);
       showInnRoom(nick);
+      break;
+
+    case PLAYER_STATES.INN_ROOM_ONLY:
+      if (cmdLower === 'l' || cmdLower === 'r') {
+        game.leaveInn(nick);
+        sendNotice(nick, 'You leave your room. You are no longer protected.');
+        showInn(nick);
+        break;
+      }
+      if (cmdLower === '?') {
+        clearMessageQueue(nick);
+        showInn(nick);
+        break;
+      }
+      clearMessageQueue(nick);
+      showInn(nick);
       break;
 
     case PLAYER_STATES.TAVERN:
