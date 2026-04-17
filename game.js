@@ -752,7 +752,10 @@ export function attackMonster(nick, currentMonsterHp, monsterStr, monsterMaxHp) 
   
   const armorDefense = getArmorDefense(player.armor_num);
   let monsterDamage = random(1, monsterStr) - armorDefense;
-  if (monsterDamage < 0) monsterDamage = 0;
+  
+  if (monsterDamage <= 0) {
+    monsterDamage = 1;
+  }
   
   const newPlayerHp = player.hp - monsterDamage;
   player.hp = newPlayerHp;

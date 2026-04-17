@@ -1788,7 +1788,8 @@ function processMasterAttack(nick) {
     } else {
       const monsterDamage = Math.floor(Math.random() * (monster.str + 1)) + (monster.attack || 0);
       const armorDefense = game.getArmorDefense ? game.getArmorDefense(stats.armor_num) : 0;
-      actualDamage = Math.max(1, monsterDamage - armorDefense);
+      actualDamage = monsterDamage - armorDefense;
+        if (actualDamage <= 0) actualDamage = 1;
       lines.push(monster.name + ' attacks first for ' + g(actualDamage) + ' damage!');
     }
     const newPlayerHp = Math.max(0, stats.hp - actualDamage);
@@ -1859,7 +1860,8 @@ function processMasterAttack(nick) {
   } else {
     const monsterDamage = Math.floor(Math.random() * (monster.str + 1)) + (monster.attack || 0);
     const armorDefense = game.getArmorDefense ? game.getArmorDefense(stats.armor_num) : 0;
-    const actualDamage = Math.max(1, monsterDamage - armorDefense);
+    const actualDamage = monsterDamage - armorDefense;
+        if (actualDamage <= 0) actualDamage = 1;
     const newPlayerHp = Math.max(0, stats.hp - actualDamage);
     monsterDamageMsg = monster.name + ' hits you for ' + g(actualDamage) + ' damage!';
 
@@ -2215,7 +2217,8 @@ function processPlayerAttack(nick) {
     } else {
       const monsterDamage = Math.floor(Math.random() * (monster.str + 1)) + (monster.attack || 0);
       const armorDefense = game.getArmorDefense ? game.getArmorDefense(stats.armor_num) : 0;
-      actualDamage = Math.max(1, monsterDamage - armorDefense);
+      actualDamage = monsterDamage - armorDefense;
+        if (actualDamage <= 0) actualDamage = 1;
       lines.push(monster.name + ' attacks first for ' + g(actualDamage) + ' damage!');
     }
     const newPlayerHp = Math.max(0, stats.hp - actualDamage);
@@ -2312,7 +2315,8 @@ function processPlayerAttack(nick) {
   } else {
     const monsterDamage = Math.floor(Math.random() * (monster.str + 1)) + (monster.attack || 0);
     const armorDefense = game.getArmorDefense ? game.getArmorDefense(stats.armor_num) : 0;
-    const actualDamage = Math.max(1, monsterDamage - armorDefense);
+    const actualDamage = monsterDamage - armorDefense;
+        if (actualDamage <= 0) actualDamage = 1;
     const newPlayerHp = Math.max(0, stats.hp - actualDamage);
     monsterDamageMsg = monster.name + ' hits you for ' + g(actualDamage) + ' damage!';
 
@@ -2455,11 +2459,31 @@ function showLogin(nick) {
       });
       noticeLines.push('---');
       noticeLines.push('');
-      
-      const mainMenuLines = buildMainMenuLines(playerNick);
-      sendLines(nick, [...noticeLines, ...mainMenuLines]);
+
+      if (player.stayinn) {
+        const roomLines = [
+          '',
+          '  You are in your room at the inn.',
+          '  You are safe from attacks, but you must leave',
+          '  to do anything else.',
+          '',
+          w('(L)eave the inn'),
+          '',
+          r('The Inn - Room') + w('  (L) (? for menu)'),
+          ''
+        ];
+        sendLines(nick, [...noticeLines, ...roomLines]);
+        setState(nick, PLAYER_STATES.INN_ROOM_ONLY);
+      } else {
+        const mainMenuLines = buildMainMenuLines(playerNick);
+        sendLines(nick, [...noticeLines, ...mainMenuLines]);
+      }
     } else {
-      showMainMenu(nick);
+      if (player.stayinn) {
+        showInn(nick);
+      } else {
+        showMainMenu(nick);
+      }
     }
   } else {
     console.log('[showLogin] no player found, showing welcome');
@@ -2704,7 +2728,8 @@ function processAttack(nick) {
     } else {
       const monsterDamage = Math.floor(Math.random() * (monster.str + 1));
       const armorDefense = game.getArmorDefense ? game.getArmorDefense(stats.armor_num) : 0;
-      actualDamage = Math.max(1, monsterDamage - armorDefense);
+      actualDamage = monsterDamage - armorDefense;
+      if (actualDamage <= 0) actualDamage = 1;
     }
     const newPlayerHp = Math.max(0, stats.hp - actualDamage);
 
@@ -2743,8 +2768,8 @@ function processAttack(nick) {
 
   if (result.victory) {
     const reward = game.winMonsterFight(nick, monster);
-
-    const victoryMsg = 'Killed ' + monster.name + '! Got ' + g(game.formatNumber(reward.gold)) + ' gold + ' + g(reward.xp) + ' XP' + (reward.gem ? ' +GEM' : '');
+    const updatedPlayer = loadPlayer(nick);
+    const victoryMsg = 'HP: [' + g(updatedPlayer.hp) + '/' + g(updatedPlayer.maxhp) + '] Gold: [' + g(updatedPlayer.gold) + '] Killed ' + monster.name + '! Got ' + g(game.formatNumber(reward.gold)) + ' gold + ' + g(reward.xp) + ' XP' + (reward.gem ? ' +GEM' : '');
     sendImmediate(nick, victoryMsg);
 
     if (reward.levelUp && reward.levelUp.levelUp) {
@@ -3526,7 +3551,8 @@ function performSkill(nick, skill) {
     monster.hp = 0;
     const result = game.winMonsterFight(nick, monster);
     if (result) {
-      const victoryMsg = 'Killed ' + monster.name + '! Got ' + g(game.formatNumber(result.gold)) + ' gold + ' + g(result.xp) + ' XP' + (result.gem ? ' +GEM' : '');
+      const updatedPlayer = loadPlayer(nick);
+      const victoryMsg = 'HP: [' + g(updatedPlayer.hp) + '/' + g(updatedPlayer.maxhp) + '] Gold: [' + g(updatedPlayer.gold) + '] Killed ' + monster.name + '! Got ' + g(game.formatNumber(result.gold)) + ' gold + ' + g(result.xp) + ' XP' + (result.gem ? ' +GEM' : '');
       sendImmediate(nick, victoryMsg);
       
       if (result.levelUp && result.levelUp.levelUp) {
@@ -3542,7 +3568,8 @@ function performSkill(nick, skill) {
     const stats = game.getPlayerStats(nick);
     const monsterDamage = Math.floor(Math.random() * (monster.str + 1));
     const armorDefense = game.getArmorDefense(player.armor_num);
-    const actualDamage = Math.max(1, monsterDamage - armorDefense);
+    const actualDamage = monsterDamage - armorDefense;
+        if (actualDamage <= 0) actualDamage = 1;
     
     const newHp = Math.max(0, stats.hp - actualDamage);
     game.setPlayerHp(nick, newHp);
@@ -3605,52 +3632,37 @@ function showForestHut(nick) {
 }
 
 function showForestHutKnock(nick, player) {
-  const isMystic = player.class === 2;
-  
   const lines = [
     '',
-    border()
+    border(),
+    r('  THE OLD MAN\'S TEST'),
+    border(),
+    '',
+    '  You politely knock on the knotted wooden door.',
+    '',
+    '  "Watcha doin down there Sonny?!" A wizened old man',
+    '  looks down from the window.',
+    '',
+    '  "Tell ya what! I\'ll give ya a mystical lesson if',
+    '  you can pass my test!" the old man giggles.',
+    '',
+    '  "I\'m thinking of a number between 1 and 100.',
+    '  I\'ll give ya 6 guesses."',
+    '',
+    '  Enter your guess (1-100):',
+    ''
   ];
-  
-  if (isMystic) {
-    lines.push(r('  THE OLD MAN\'S TEST'));
-    lines.push(border());
-    lines.push('');
-    lines.push('  You politely knock on the knotted wooden door.');
-    lines.push('');
-    lines.push('  "Watcha doin down there Sonny?!" A wizened old man');
-    lines.push('  looks down from the window.');
-    lines.push('');
-    lines.push('  "Tell ya what! I\'ll give ya a mystical lesson if');
-    lines.push('  you can pass my test!" the old man giggles.');
-    lines.push('');
-    lines.push('  "I\'m thinking of a number between 1 and 100.');
-    lines.push('  I\'ll give ya 6 guesses."');
-    lines.push('');
-    lines.push('  Enter your guess (1-100):');
-    lines.push('');
-    
-    const userState = getState(nick);
-    userState.hutGuess = {
-      answer: random(1, 100),
-      tries: 0,
-      maxTries: 6
-    };
-    
-    sendLines(nick, lines);
-    setState(nick, PLAYER_STATES.FOREST_HUT_GUESS);
-  } else {
-    lines.push(r('  No Answer'));
-    lines.push(border());
-    lines.push('');
-    lines.push('  No one seems to be home.');
-    lines.push('');
-    lines.push('(R)eturn to Forest');
-    lines.push('');
-    
-    sendLines(nick, lines);
-    setState(nick, PLAYER_STATES.FOREST_EVENT);
-  }
+
+  const userState = getState(nick);
+  userState.hutGuess = {
+    answer: random(1, 100),
+    tries: 0,
+    maxTries: 6,
+    wager: player.level * 100
+  };
+
+  sendLines(nick, lines);
+  setState(nick, PLAYER_STATES.FOREST_HUT_GUESS);
 }
 
 function showForestHutBang(nick) {
@@ -4171,17 +4183,58 @@ function handleCommand(nick, cmd, args) {
       {
         const guess = parseInt(cmd);
         const hutGuess = userState.hutGuess;
-        
+
+        if (cmdLower === 'r') {
+          showForest(nick);
+          break;
+        }
+
+        if (cmdLower === '?') {
+          clearMessageQueue(nick);
+          sendLines(nick, [
+            '',
+            border(),
+            r('  THE OLD MAN\'S TEST'),
+            border(),
+            '',
+            '  "I\'m thinking of a number between 1 and 100.',
+            '  I\'ll give ya 6 guesses."',
+            '',
+            '  Tries remaining: ' + (hutGuess.maxTries - hutGuess.tries),
+            '',
+            '  Enter your guess (1-100):',
+            ''
+          ]);
+          break;
+        }
+
         if (isNaN(guess) || guess < 1 || guess > 100) {
-          sendNotice(nick, 'Please enter a number between 1 and 100.');
+          clearMessageQueue(nick);
+          sendLines(nick, [
+            '',
+            'Please enter a number between 1 and 100.',
+            '',
+            'Tries remaining: ' + (hutGuess.maxTries - hutGuess.tries),
+            '',
+            'Enter your guess (1-100):',
+            ''
+          ]);
           return;
         }
-        
+
         hutGuess.tries++;
-        
+
         const lines = [''];
-        
+
         if (guess === hutGuess.answer) {
+          const player = loadPlayer(nick);
+          const xpGain = player.level * 500;
+          const goldGain = player.level * 100;
+
+          player.xp = Math.min(10000000, player.xp + xpGain);
+          player.gold = Math.min(player.gold + goldGain, config.maxGold);
+          savePlayer(nick, player);
+
           lines.push(border());
           lines.push(r('  ** YOU PASSED THE TEST! **'));
           lines.push(border());
@@ -4189,9 +4242,10 @@ function handleCommand(nick, cmd, args) {
           lines.push('  "That\'s right! You read my mind!"');
           lines.push('  The old man cheers with joy!');
           lines.push('');
-          lines.push('  ** YOUR CLASS SKILL IS RAISED BY ONE! **');
+          lines.push('  You gain ' + xpGain + ' XP!');
+          lines.push('  You gain ' + goldGain + ' gold!');
           lines.push('');
-          
+
           sendLines(nick, lines);
           sendNotice(nick, 'You return to the forest, wiser than before.');
           showForest(nick);
@@ -4203,11 +4257,14 @@ function handleCommand(nick, cmd, args) {
           lines.push('  "No, no NO! The number was ' + hutGuess.answer + '!"');
           lines.push('  He slams his window shut in disappointment.');
           lines.push('');
-          
+          lines.push('  You gain nothing.');
+          lines.push('');
+
           sendLines(nick, lines);
           sendNotice(nick, 'You return to the forest, wiser than before.');
           showForest(nick);
         } else if (guess < hutGuess.answer) {
+          clearMessageQueue(nick);
           lines.push('  "The number is higher than that!"');
           lines.push('  Tries remaining: ' + (hutGuess.maxTries - hutGuess.tries));
           lines.push('');
@@ -4215,6 +4272,7 @@ function handleCommand(nick, cmd, args) {
           lines.push('');
           sendLines(nick, lines);
         } else {
+          clearMessageQueue(nick);
           lines.push('  "The number is lower than that!"');
           lines.push('  Tries remaining: ' + (hutGuess.maxTries - hutGuess.tries));
           lines.push('');
