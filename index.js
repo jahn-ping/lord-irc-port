@@ -711,34 +711,40 @@ function showFullStats(nick) {
   const stats = game.getPlayerStats(nick);
   const classNames = ['Warrior', 'Death Knight', 'Mystic', 'Thief'];
   const className = classNames[player.class] || 'Warrior';
-  
+
+  const horseName = player.horse === HORSE_WHITE ? 'White' : (player.horse === HORSE_BLACK ? 'Black' : '');
+
   const lines = [
     '',
     stats.name + "'s Stats...",
     border(),
-    'Experience   : ' + g(game.formatNumber(stats.xp)),
-    'Level        : ' + g(stats.level) + w(pad('HitPoints   : (' + stats.hp + ' of ' + stats.maxhp + ')', 32)),
-    'Forest Fights: ' + g(stats.fights) + w(pad('PlayerFights: ' + stats.pfights, 32)),
-    'Gold In Hand : ' + g(game.formatNumber(stats.gold)) + w(pad('Gold In Bank: ' + game.formatNumber(stats.bank), 32)),
-    'Weapon       : ' + g(stats.weapon) + w(pad('Atk Strength: ' + stats.str, 32)),
-    'Armour       : ' + g(stats.armor) + w(pad('Def Strength: ' + stats.def, 32)),
-    'Charm        : ' + g(stats.charm) + w(pad('Gems        : ' + stats.gems, 32)),
+    'Experience    : ' + g(game.formatNumber(stats.xp)),
+    'Level         : ' + g(stats.level) + '     ' + w('Hit Points  : ' + stats.hp + ' / ' + stats.maxhp),
+    'Forest Fights: ' + g(stats.fights) + '     ' + w('Player Fights: ' + stats.pfights),
+    'Gold In Hand  : ' + g(game.formatNumber(stats.gold)) + '     ' + w('Gold In Bank : ' + game.formatNumber(stats.bank)),
+    'Weapon        : ' + g(stats.weapon) + '     ' + w('Atk Strength : ' + stats.str),
+    'Armour        : ' + g(stats.armor) + '     ' + w('Def Strength : ' + stats.def),
+    'Charm         : ' + g(stats.charm) + '     ' + w('Gems         : ' + stats.gems),
     ''
   ];
-  
+
+  if (player.horse !== HORSE_NONE) {
+    lines.push('Horse         : ' + g(horseName) + ' Mare');
+  }
+
   if (player.skill_charges_max > 0) {
     const timers = getSkillChargeTimers(player);
     if (timers.length > 0) {
-      lines.push('Skill Charges: ' + player.skill_charges_active + '/' + player.skill_charges_max + ' (refreshing: ' + timers.join(', ') + ')');
+      lines.push('Skill Charges : ' + player.skill_charges_active + '/' + player.skill_charges_max + ' (refreshing: ' + timers.join(', ') + ')');
     } else {
-      lines.push('Skill Charges: ' + player.skill_charges_active + '/' + player.skill_charges_max);
+      lines.push('Skill Charges : ' + player.skill_charges_active + '/' + player.skill_charges_max);
     }
   }
-  
+
   lines.push('');
   lines.push('(R)eturn to town');
   lines.push('');
-  
+
   sendLines(nick, lines);
   setState(nick, PLAYER_STATES.STATS);
 }
