@@ -65,6 +65,8 @@ const PLAYER_STATES = {
   FOREST_HAG: 'forest_hag',
   DARK_CLOAK: 'dark_cloak',
   DARK_CLOAK_BARTENDER: 'dark_cloak_bartender',
+  DARK_CLOAK_GAMBLE: 'dark_cloak_gamble',
+  DARK_CLOAK_GUESS: 'dark_cloak_guess',
   OTHER_PLACES: 'other_places',
   DRAGON: 'dragon',
   BARAK_HOUSE: 'barak_house',
@@ -1005,7 +1007,11 @@ function showInnConvo(nick) {
   }
 
   lines.push('');
+  lines.push(w('(A)dd comment'));
+  lines.push(w('(C)ontinue'));
   lines.push(w('(R)eturn to inn'));
+  lines.push('');
+  lines.push(r('Well? (A,C,R) (? for menu)'));
   lines.push('');
 
   sendLines(nick, lines);
@@ -1021,7 +1027,7 @@ function showMakeAnnouncement(nick) {
     '  Type your announcement below.',
     '  Maximum 75 characters.',
     '',
-    w('(R)eturn to inn'),
+    r('Type your announcement (R to cancel) (? for menu)'),
     ''
   ];
 
@@ -1085,10 +1091,10 @@ function showInnBartenderGems(nick) {
   if (player.gems === 0) {
     lines.push('"You have no gems."');
     lines.push('');
-    lines.push(w('(R)eturn'));
+    lines.push(r('(R)eturn (? for menu)'));
     lines.push('');
     sendLines(nick, lines);
-    setState(nick, PLAYER_STATES.INN_BARTENDER);
+    setState(nick, PLAYER_STATES.INN_BARTENDER_GEMS);
     return;
   }
 
@@ -1099,7 +1105,7 @@ function showInnBartenderGems(nick) {
   lines.push('Buy how many elixirs? [' + maxElixirs + ']');
   lines.push('Or (R)eturn to bar');
   lines.push('');
-  lines.push(r('Well? (? for menu)'));
+  lines.push(r('Well? (How many? [' + maxElixirs + ']), (R) (? for menu)'));
   lines.push('');
 
   sendLines(nick, lines);
@@ -1111,18 +1117,37 @@ function showInnBartenderBribe(nick) {
   if (!player) return;
 
   const bribeCost = player.level * 1600;
+  const players = game.getPlayerList();
+  const roomPlayers = players.filter(p => 
+    p.name.toLowerCase() !== nick.toLowerCase() && 
+    p.dead === 0 &&
+    p.stayinn === 1
+  );
+
   const lines = [
     '',
-    '  Bartender - Bribe',
+    '  Bartender - Fight Inn Guests',
     border(),
     '',
-    '"Ahh..Bribe...Now you are speaking my language friend!',
-    'I will let you borrow my room keys...on one condition..',
-    'That ya pay me ' + bribeCost + ' gold!!" Deal? [Y/N]',
-    '',
-    r('Deal? (? for menu)'),
+    '"Ahh..You want to fight the inn guests?"',
+    '"That\'ll cost ya ' + bribeCost + ' gold!!"',
     ''
   ];
+
+  if (roomPlayers.length === 0) {
+    lines.push('  No guests in rooms right now.');
+  } else {
+    lines.push('  Guests in rooms:');
+    roomPlayers.forEach((p, i) => {
+      lines.push('(' + g(i + 1) + ') ' + p.name + ' - Lvl ' + g(p.level));
+    });
+  }
+
+  lines.push('');
+  lines.push(w('(R)eturn to bar'));
+  lines.push('');
+  lines.push(r('Well? (number or R) (? for menu)'));
+  lines.push('');
 
   sendLines(nick, lines);
   setState(nick, PLAYER_STATES.INN_BARTENDER_BRIBE);
@@ -1193,7 +1218,7 @@ function sethSings(nick) {
     return;
   }
 
-  player.seenbard = now + (24 * 60 * 60 * 1000);
+  player.seenbard = now + (60 * 60 * 1000);
 
   let song;
   if (player.sex === 0) {
@@ -1390,20 +1415,23 @@ function showDarkCloakGamble(nick) {
   const player = loadPlayer(nick);
   if (!player) return;
 
-  sendLines(nick, [
+  const lines = [
     '',
     '  Gamble With Locals',
     border(),
     '  How much do you want to wager?',
     '',
-    '  You have ' + player.gold + ' gold.',
+    '  You have ' + g(player.gold) + ' gold.',
     '',
-    '  Enter amount (or A for all-in):',
-    '',
-    r('Wager amount (? for menu)'),
+    w('(A)ll-in'),
+    w('(R)eturn to bar'),
     ''
-  ]);
-  setState(nick, 'dark_cloak_gamble');
+  ];
+  lines.push(r('Wager amount (? for menu)'));
+  lines.push('');
+
+  sendLines(nick, lines);
+  setState(nick, PLAYER_STATES.DARK_CLOAK_GAMBLE);
 }
 
 function showDarkCloakEtchings(nick) {
@@ -1451,16 +1479,16 @@ function showDarkCloakBartenderMenu(nick, cmd) {
       if (isMale) {
         showViolet(nick, 'darkcloak');
       } else {
-        sendNotice(nick, 'Bartender - (' + charPrompt + '),G,B,C,R (? for menu)');
-        showDarkCloak(nick);
+        clearMessageQueue(nick);
+        showDarkCloakBartender(nick);
       }
       break;
     case 's':
       if (!isMale) {
         showSethAble(nick, 'darkcloak');
       } else {
-        sendNotice(nick, 'Bartender - (' + charPrompt + '),G,B,C,R (? for menu)');
-        showDarkCloak(nick);
+        clearMessageQueue(nick);
+        showDarkCloakBartender(nick);
       }
       break;
     case 'g':
@@ -1481,8 +1509,8 @@ function showDarkCloakBartenderMenu(nick, cmd) {
       showDarkCloakBartender(nick);
       break;
     default:
-      sendNotice(nick, 'Bartender - (' + charPrompt + '),G,B,C,R (? for menu)');
-      showDarkCloak(nick);
+      clearMessageQueue(nick);
+      showDarkCloakBartender(nick);
   }
 }
 
@@ -1659,7 +1687,10 @@ function showTrainingQuestion(nick) {
     'If you win, you will gain experience!',
     'But be warned - if you lose, you will be severely injured!',
     '',
-    '(R)eturn to training',
+    w('(C)hallenge Master'),
+    w('(R)eturn to training'),
+    '',
+    r('Well? (C,R) (? for menu)'),
     ''
   ]);
   setState(nick, PLAYER_STATES.TRAINING_QUESTION);
@@ -2001,6 +2032,114 @@ function startPlayerFight(nick, targetIndex) {
   if (targetNick) {
     const warnMsg = 'WARNING! ' + (attackerChar?.name || nick) + ' is attacking you! Fight back by pressing S to enter slaughter and attack them!';
     console.log('[SLAUGHTER] -> ' + targetNick + ': ' + warnMsg);
+    sendImmediate(targetNick, warnMsg);
+  }
+
+  const refreshedPlayer = checkAndRefreshSkills(nick);
+
+  const firstStrikeChance = calculateFirstStrikeChance(refreshedPlayer, target);
+  const first = Math.random() * 100 < firstStrikeChance;
+
+  const lines = [
+    '',
+    r('**PLAYER FIGHT**'),
+    'You attack ' + target.name + '!',
+    '',
+    target.name + ' wields ' + targetWeapon + '!',
+    '',
+    target.name + ' HP: (' + g(target.hp) + ' of ' + g(target.maxhp) + ')',
+    ''
+  ];
+
+  if (first) {
+    lines.push('Your experience gives you the first strike!');
+  } else {
+    lines.push(target.name + ' has surprised you!');
+  }
+
+  lines.push('');
+  lines.push(statLine(nick));
+  const skillText = getSkillMenuText(refreshedPlayer);
+  lines.push(w('(A)ttack ') + skillText + w('(R)un'));
+  lines.push('');
+  const skillKeys = { 0: 'D', 1: 'M', 2: 'T' };
+  const hasSkill = refreshedPlayer.skill_charges_max > 0 && refreshedPlayer.skill_charges_active > 0;
+  const helpKeys = hasSkill ? '(A,' + skillKeys[refreshedPlayer.class] + ',R) (? for menu)' : '(A,R) (? for menu)';
+  lines.push(r('Player Fight') + w('  ' + helpKeys));
+  lines.push('');
+
+  sendLines(nick, lines);
+  {
+    const us = getState(nick);
+    us.lastFightState = PLAYER_STATES.FIGHT_PLAYER;
+    us.enemyFirstStrike = !first;
+  }
+  setState(nick, PLAYER_STATES.FIGHT_PLAYER);
+}
+
+function startInnRoomFight(nick, targetName) {
+  const players = game.getPlayerList();
+  const target = players.find(p => p.name.toLowerCase() === targetName.toLowerCase());
+
+  if (!target || target.dead !== 0 || target.stayinn !== 1) {
+    sendNotice(nick, 'That guest is no longer available!');
+    showInn(nick);
+    return;
+  }
+
+  const player = loadPlayer(nick);
+  const now = Date.now();
+
+  if (player.pfights_timer && now < player.pfights_timer) {
+    const minutesLeft = Math.ceil((player.pfights_timer - now) / 60000);
+    sendNotice(nick, 'No player fights left! Try again in ' + minutesLeft + ' minute(s).');
+    showInn(nick);
+    return;
+  }
+
+  if (player.pfights <= 0) {
+    player.pfights = 3;
+    player.pfights_timer = now + (60 * 60 * 1000);
+    savePlayer(nick, player);
+    sendNotice(nick, 'You have ' + player.pfights + ' player fights now!');
+  }
+
+  player.pfights--;
+  if (player.pfights <= 0) {
+    player.pfights_timer = now + (60 * 60 * 1000);
+  }
+  savePlayer(nick, player);
+
+  let timerMsg = '';
+  if (player.pfights_timer) {
+    const minsLeft = Math.ceil((player.pfights_timer - now) / 60000);
+    timerMsg = ' Timer resets in ' + minsLeft + ' min.';
+  }
+  sendNotice(nick, 'You have ' + player.pfights + ' of 3 player fights remaining!' + timerMsg);
+
+  const targetWeapon = game.weapons[target.weapon_num - 1]?.name || 'Fists';
+
+  const fightMonster = {
+    name: target.name,
+    weapon: targetWeapon,
+    hp: target.hp,
+    maxhp: target.maxhp,
+    str: target.str,
+    attack: target.str,
+    level: target.level,
+    gold: Math.floor(target.gold * 0.1),
+    isPlayer: true,
+    attackerNick: nick
+  };
+
+  const userState = getState(nick);
+  userState.currentMonster = fightMonster;
+
+  const attackerChar = loadPlayer(nick);
+  const targetNick = getPlayerNick(target.name);
+  if (targetNick) {
+    const warnMsg = 'WARNING! ' + (attackerChar?.name || nick) + ' paid the bartender to attack you while you\'re in your room!';
+    console.log('[INN_BRIBE] -> ' + targetNick + ': ' + warnMsg);
     sendImmediate(targetNick, warnMsg);
   }
 
@@ -3701,7 +3840,12 @@ function handleCommand(nick, cmd, args) {
         showBarakWalkin(nick);
         break;
       }
-      sendNotice(nick, 'Barak House - K, W, H, R');
+      if (cmdLower === '?') {
+        clearMessageQueue(nick);
+        showBarakHouse(nick);
+        break;
+      }
+      clearMessageQueue(nick);
       showBarakHouse(nick);
       break;
 
@@ -3735,7 +3879,12 @@ function handleCommand(nick, cmd, args) {
         showMainMenu(nick);
         break;
       }
-      sendNotice(nick, 'Barak - J, C, Y, H, R');
+      if (cmdLower === '?') {
+        clearMessageQueue(nick);
+        showBarakKnock(nick);
+        break;
+      }
+      clearMessageQueue(nick);
       showBarakKnock(nick);
       break;
 
@@ -3757,7 +3906,12 @@ function handleCommand(nick, cmd, args) {
         showBarakRead(nick);
         break;
       }
-      sendNotice(nick, 'Barak - W, C, H, R');
+      if (cmdLower === '?') {
+        clearMessageQueue(nick);
+        showBarakBreeze(nick);
+        break;
+      }
+      clearMessageQueue(nick);
       showBarakBreeze(nick);
       break;
 
@@ -3776,7 +3930,12 @@ function handleCommand(nick, cmd, args) {
         showBarakChests(nick);
         break;
       }
-      sendNotice(nick, 'Barak - O, F, H, R');
+      if (cmdLower === '?') {
+        clearMessageQueue(nick);
+        showBarakPlay(nick);
+        break;
+      }
+      clearMessageQueue(nick);
       showBarakPlay(nick);
       break;
 
@@ -3830,7 +3989,12 @@ function handleCommand(nick, cmd, args) {
           }
           break;
         }
-        sendNotice(nick, 'Choose a chest: 1-6');
+        if (cmdLower === '?') {
+          clearMessageQueue(nick);
+          showBarakChests(nick);
+          break;
+        }
+        clearMessageQueue(nick);
         showBarakChests(nick);
       }
       break;
@@ -3891,7 +4055,12 @@ function handleCommand(nick, cmd, args) {
         showMainMenu(nick);
         break;
       }
-      sendNotice(nick, 'Barak - O, L, H, R');
+      if (cmdLower === '?') {
+        clearMessageQueue(nick);
+        showBarakRead(nick);
+        break;
+      }
+      clearMessageQueue(nick);
       showBarakRead(nick);
       break;
 
@@ -3930,7 +4099,12 @@ function handleCommand(nick, cmd, args) {
         showMainMenu(nick);
         break;
       }
-      sendNotice(nick, 'Barak - A, K');
+      if (cmdLower === '?') {
+        clearMessageQueue(nick);
+        showBarakWalkin(nick);
+        break;
+      }
+      clearMessageQueue(nick);
       showBarakWalkin(nick);
       break;
 
@@ -4734,12 +4908,23 @@ function handleCommand(nick, cmd, args) {
           showInn(nick);
           break;
         }
-        sendNotice(nick, 'The Inn - (C,F,T,G,V,H,M,R) (? for menu)');
+        if (cmdLower === '?') {
+          clearMessageQueue(nick);
+          showInn(nick);
+          break;
+        }
+        clearMessageQueue(nick);
+        showInn(nick);
         break;
       }
 
     case PLAYER_STATES.INN_CONVO:
-      if (cmdLower === 'c' || cmdLower === '') {
+      if (cmdLower === 'c' || cmdLower === 'r' || cmdLower === '' || cmdLower === '?') {
+        if (cmdLower === '?') {
+          clearMessageQueue(nick);
+          showInnConvo(nick);
+          break;
+        }
         showInn(nick);
         break;
       }
@@ -4748,16 +4933,23 @@ function handleCommand(nick, cmd, args) {
         sendLines(nick, [
           '',
           '  Share your feelings now... (Max 75 char!)',
+          '',
+          r('Type your message (R to cancel) (? for menu)'),
           ''
         ]);
         break;
       }
-      showInn(nick);
+      clearMessageQueue(nick);
+      showInnConvo(nick);
       break;
 
     case PLAYER_STATES.INN_CONVO_ADD:
       {
         const player = loadPlayer(nick);
+        if (cmdLower === 'r') {
+          showInnConvo(nick);
+          break;
+        }
         const msg = cmd.trim().substring(0, 75);
         if (msg && player) {
           innNewConvo.push(player.name);
@@ -4805,13 +4997,18 @@ function handleCommand(nick, cmd, args) {
         showInnBartender(nick);
         break;
       }
-      sendNotice(nick, 'Bartender - (V)iolet, (G)ems, (B)ribe, (R)eturn (? for menu)');
-      showInn(nick);
+      clearMessageQueue(nick);
+      showInnBartender(nick);
       break;
 
     case PLAYER_STATES.INN_BARTENDER_GEMS:
       if (cmdLower === 'r') {
         showInn(nick);
+        break;
+      }
+      if (cmdLower === '?') {
+        clearMessageQueue(nick);
+        showInnBartenderGems(nick);
         break;
       }
       const gemCount = parseInt(cmd);
@@ -4827,11 +5024,15 @@ function handleCommand(nick, cmd, args) {
           '',
           w('(H)it Points'),
           w('(S)trength'),
-          w('(V)itality'),
-          ''
+          w('(D)efense'),
+          w('(E)lixir'),
+          w('(R)eturn to bar'),
+          '',
+          r('Well? (H,S,D,E,R) (? for menu)')
         ]);
         break;
       }
+      clearMessageQueue(nick);
       showInnBartenderGems(nick);
       break;
 
@@ -4840,76 +5041,139 @@ function handleCommand(nick, cmd, args) {
         const userState = getState(nick);
         const gemCount = userState.temp?.gemCount || 0;
         const player = loadPlayer(nick);
-        const lines = [''];
+
+        if (cmdLower === 'e') {
+          showInnBartenderGems(nick);
+          return;
+        }
+
+        if (cmdLower === 'r') {
+          showInn(nick);
+          return;
+        }
+
+        if (cmdLower === '?') {
+          clearMessageQueue(nick);
+          const lines = [
+            '',
+            '  The bartender retrieves a steaming tankard from the',
+            '  back room. Before you drink it, what do you',
+            '  wish for?',
+            '',
+            w('(H)it Points'),
+            w('(S)trength'),
+            w('(D)efense'),
+            w('(E)lixir'),
+            w('(R)eturn to bar'),
+            '',
+            r('Well? (H,S,D,E,R) (? for menu)')
+          ];
+          sendLines(nick, lines);
+          return;
+        }
 
         if (gemCount > player.gems / 2) {
-          lines.push('You don\'t have that many gems!');
-        } else {
+          sendNotice(nick, 'You don\'t have that many gems!');
+          showInn(nick);
+          return;
+        }
+
+        if (cmdLower === 'h' || cmdLower === 's' || cmdLower === 'd') {
+          const lines = [''];
           player.gems -= gemCount * 2;
 
           switch (cmdLower) {
             case 'h':
-              const hpGain = gemCount * 10;
-              player.hp = Math.min(player.maxhp, player.hp + hpGain);
+              player.hp = Math.min(player.maxhp, player.hp + gemCount);
               lines.push('YOU DRINK THE BREW AND YOUR SOUL REJOICES!');
-              lines.push('You gain ' + hpGain + ' HP!');
-              lines.push('');
-              lines.push(r('Well? (H,S,V) (? for menu)'));
-              lines.push('');
+              lines.push('You increased your HP by ' + gemCount + '!');
+              lines.push('You now have ' + player.hp + ' HP.');
               break;
             case 's':
               player.str += gemCount;
               lines.push('YOU DRINK THE BREW AND YOUR SOUL REJOICES!');
-              lines.push('You gain ' + gemCount + ' STR!');
-              lines.push('');
-              lines.push(r('Well? (H,S,V) (? for menu)'));
-              lines.push('');
+              lines.push('You increased your STR by ' + gemCount + '!');
+              lines.push('You now have ' + player.str + ' STR.');
               break;
-            case 'v':
-              player.maxhp += gemCount * 5;
-              player.hp += gemCount * 5;
+            case 'd':
+              player.def += gemCount;
               lines.push('YOU DRINK THE BREW AND YOUR SOUL REJOICES!');
-              lines.push('You gain ' + (gemCount * 5) + ' MAX HP!');
-              lines.push('');
-              lines.push(r('Well? (H,S,V) (? for menu)'));
-              lines.push('');
+              lines.push('You increased your DEF by ' + gemCount + '!');
+              lines.push('You now have ' + player.def + ' DEF.');
               break;
-            default:
-              player.gems += gemCount * 2;
-              sendNotice(nick, 'Invalid choice!');
-              showInnBartenderGems(nick);
-              return;
           }
           savePlayer(nick, player);
+          sendLines(nick, lines);
+          showInn(nick);
+        } else {
+          clearMessageQueue(nick);
+          const lines = [
+            '',
+            '  The bartender retrieves a steaming tankard from the',
+            '  back room. Before you drink it, what do you',
+            '  wish for?',
+            '',
+            w('(H)it Points'),
+            w('(S)trength'),
+            w('(D)efense'),
+            w('(E)lixir'),
+            '',
+            r('Well? (H,S,D,E) (? for menu)')
+          ];
+          sendLines(nick, lines);
         }
-        lines.push('');
-        sendLines(nick, lines);
-        showInn(nick);
       }
       break;
 
     case PLAYER_STATES.INN_BARTENDER_BRIBE:
-      if (cmdLower === 'n' || cmdLower === 'r') {
-        sendNotice(nick, '"Fine... forget I offered that deal to you..."');
+      if (cmdLower === 'r' || cmdLower === 'R') {
         showInn(nick);
         break;
       }
-      if (cmdLower === 'y') {
+      if (cmdLower === '?') {
+        clearMessageQueue(nick);
+        showInnBartenderBribe(nick);
+        break;
+      }
+      {
         const player = loadPlayer(nick);
         const bribeCost = player.level * 1600;
-        if (player.gold < bribeCost) {
-          sendNotice(nick, '"Hey! You slobbering idiot! You don\'t have that much gold!"');
-        } else {
+        const targetNum = parseInt(cmd);
+
+        if (!isNaN(targetNum) && targetNum > 0) {
+          if (player.gold < bribeCost) {
+            sendNotice(nick, '"Hey! You slobbering idiot! You don\'t have that much gold!"');
+            showInn(nick);
+            break;
+          }
+
+          const players = game.getPlayerList();
+          const roomPlayers = players.filter(p => 
+            p.name.toLowerCase() !== nick.toLowerCase() && 
+            p.dead === 0 &&
+            p.stayinn === 1
+          );
+
+          if (targetNum < 1 || targetNum > roomPlayers.length) {
+            sendNotice(nick, 'Invalid guest number!');
+            showInnBartenderBribe(nick);
+            break;
+          }
+
+          const target = roomPlayers[targetNum - 1];
           player.gold -= bribeCost;
           savePlayer(nick, player);
           sendNotice(nick, 'You pay ' + bribeCost + ' gold to the bartender.');
           sendNotice(nick, '"Now go get \'em, tiger!"');
+
+          startInnRoomFight(nick, target.name);
+          break;
         }
-        showInn(nick);
+
+        clearMessageQueue(nick);
+        showInnBartenderBribe(nick);
         break;
       }
-      showInn(nick);
-      break;
 
     case PLAYER_STATES.INN_SETH:
       {
@@ -5073,7 +5337,7 @@ function handleCommand(nick, cmd, args) {
             }
             break;
           default:
-            sendNotice(nick, 'Seth - (N)ever mind (W)ink (K)iss (P)eck (S)it (G)rab (C)arry (M)arry (R)eturn (? for menu)');
+            clearMessageQueue(nick);
             showSethAble(nick, returnTo);
             return;
         }
@@ -5083,7 +5347,7 @@ function handleCommand(nick, cmd, args) {
         returnFn(nick);
         break;
       }
-      sendNotice(nick, 'Seth Able - (A)sk to sing (F)lirt (R)eturn');
+      clearMessageQueue(nick);
       returnFn(nick);
       break;
     }
@@ -5246,7 +5510,7 @@ function handleCommand(nick, cmd, args) {
             }
             break;
           default:
-            sendNotice(nick, 'Violet - (N)ever mind (W)ink (K)iss (P)eck (S)it (G)rab (C)arry (M)arry (R)eturn (? for menu)');
+            clearMessageQueue(nick);
             showViolet(nick, returnTo);
             return;
         }
@@ -5272,7 +5536,13 @@ function handleCommand(nick, cmd, args) {
         showInn(nick);
         break;
       }
-      sendNotice(nick, 'Get a room - Y,N,R');
+      if (cmdLower === '?') {
+        clearMessageQueue(nick);
+        showInnRoom(nick);
+        break;
+      }
+      clearMessageQueue(nick);
+      showInnRoom(nick);
       break;
 
     case PLAYER_STATES.TAVERN:
@@ -5320,13 +5590,188 @@ function handleCommand(nick, cmd, args) {
           showDarkCloak(nick);
           break;
         default:
-          sendNotice(nick, 'Dark Cloak Tavern - C,D,E,T,G,R (? for menu)');
+          clearMessageQueue(nick);
+          showDarkCloak(nick);
       }
       break;
 
     case PLAYER_STATES.DARK_CLOAK_BARTENDER:
       showDarkCloakBartenderMenu(nick, cmdLower);
       break;
+
+    case PLAYER_STATES.DARK_CLOAK_GAMBLE:
+      if (cmdLower === 'r') {
+        showDarkCloak(nick);
+        break;
+      }
+      if (cmdLower === '?') {
+        clearMessageQueue(nick);
+        showDarkCloakGamble(nick);
+        break;
+      }
+
+      const player = loadPlayer(nick);
+      if (!player) {
+        showDarkCloak(nick);
+        break;
+      }
+
+      if (player.gold <= 0) {
+        sendNotice(nick, 'Come back when you have some gold.');
+        showDarkCloak(nick);
+        break;
+      }
+
+      let wagerAmount = 0;
+      if (cmdLower === 'a') {
+        wagerAmount = player.gold;
+      } else {
+        wagerAmount = parseInt(cmd);
+      }
+
+      if (isNaN(wagerAmount) || wagerAmount <= 0) {
+        clearMessageQueue(nick);
+        showDarkCloakGamble(nick);
+        break;
+      }
+
+      if (wagerAmount > player.gold) {
+        sendNotice(nick, 'You don\'t have that much gold!');
+        showDarkCloakGamble(nick);
+        break;
+      }
+
+      player.gold -= wagerAmount;
+      savePlayer(nick, player);
+
+      const us = getState(nick);
+      us.gambleWager = wagerAmount;
+      us.gambleNumber = random(1, 100);
+      us.gambleTries = 6;
+
+      sendLines(nick, [
+        '',
+        '  ** GUESS **',
+        border(),
+        '"All right now! I\'m thinking of a number between',
+        '1 and 100. I\'ll give ya six guesses."',
+        '',
+        '(The old man leans out the window in anticipation)',
+        '',
+        r('Your guess (? for menu)'),
+        ''
+      ]);
+      setState(nick, PLAYER_STATES.DARK_CLOAK_GUESS);
+      break;
+
+    case PLAYER_STATES.DARK_CLOAK_GUESS:
+      {
+        const us = getState(nick);
+        const wager = us.gambleWager || 0;
+        const secretNum = us.gambleNumber || 0;
+        let tries = us.gambleTries || 0;
+
+        if (cmdLower === '?') {
+          clearMessageQueue(nick);
+          sendLines(nick, [
+            '',
+            '  ** GUESS **',
+            border(),
+            '"All right now! I\'m thinking of a number between',
+            '1 and 100. I\'ll give ya six guesses."',
+            '',
+            '(The old man leans out the window in anticipation)',
+            '',
+            'Guesses remaining: ' + tries,
+            '',
+            r('Your guess (? for menu)'),
+            ''
+          ]);
+          break;
+        }
+
+        if (cmdLower === 'r') {
+          showDarkCloak(nick);
+          break;
+        }
+
+        const guess = parseInt(cmd);
+
+        if (isNaN(guess) || guess < 1 || guess > 100) {
+          clearMessageQueue(nick);
+          sendLines(nick, [
+            '',
+            '  ** GUESS **',
+            border(),
+            'Invalid guess. Enter a number between 1 and 100.',
+            '',
+            'Guesses remaining: ' + tries,
+            '',
+            r('Your guess (? for menu)'),
+            ''
+          ]);
+          break;
+        }
+
+        tries--;
+        us.gambleTries = tries;
+
+        if (guess === secretNum) {
+          const winnings = wager * 2;
+          const p = loadPlayer(nick);
+          if (p) {
+            p.gold = Math.min(p.gold + winnings, config.maxGold);
+            savePlayer(nick, p);
+          }
+
+          sendLines(nick, [
+            '',
+            '"That\'s right! That\'s the number I was thinking of!"',
+            '',
+            'You win ' + winnings + ' gold!',
+            ''
+          ]);
+          showDarkCloak(nick);
+          break;
+        } else if (tries <= 0) {
+          sendLines(nick, [
+            '',
+            'You lost! You are out of guesses.',
+            'The number was ' + secretNum,
+            '',
+            'You lost ' + wager + ' gold.',
+            ''
+          ]);
+          showDarkCloak(nick);
+          break;
+        } else if (guess < secretNum) {
+          clearMessageQueue(nick);
+          sendLines(nick, [
+            '',
+            'Guess ' + (6 - tries) + ': ' + guess,
+            '"The number is higher than that!"',
+            '',
+            'Guesses remaining: ' + tries,
+            '',
+            r('Your guess (? for menu)'),
+            ''
+          ]);
+          break;
+        } else {
+          clearMessageQueue(nick);
+          sendLines(nick, [
+            '',
+            'Guess ' + (6 - tries) + ': ' + guess,
+            '"The number is lower than that!"',
+            '',
+            'Guesses remaining: ' + tries,
+            '',
+            r('Your guess (? for menu)'),
+            ''
+          ]);
+          break;
+        }
+      }
 
     case PLAYER_STATES.TRAINING:
       if (cmdLower === 'r') {
@@ -5342,7 +5787,13 @@ function handleCommand(nick, cmd, args) {
         startMasterFight(nick);
         break;
       }
-      sendNotice(nick, 'Turgons Warrior Training - Q,C,R');
+      if (cmdLower === '?') {
+        clearMessageQueue(nick);
+        showTraining(nick);
+        break;
+      }
+      clearMessageQueue(nick);
+      showTraining(nick);
       break;
 
     case PLAYER_STATES.TRAINING_QUESTION:
@@ -5350,7 +5801,13 @@ function handleCommand(nick, cmd, args) {
         showTraining(nick);
         break;
       }
-      sendNotice(nick, 'Training Question - R');
+      if (cmdLower === '?') {
+        clearMessageQueue(nick);
+        showTrainingQuestion(nick);
+        break;
+      }
+      clearMessageQueue(nick);
+      showTrainingQuestion(nick);
       break;
 
     case PLAYER_STATES.FIGHT_MASTER:
