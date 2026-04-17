@@ -1005,7 +1005,7 @@ function showInnBartender(nick) {
   lines.push(w('(B)ribe'));
   lines.push(w('(R)eturn to Bar'));
   lines.push('');
-  lines.push('"Well?" The bartender inquires.');
+  lines.push(r('"Well?" The bartender inquires. (? for menu)'));
   lines.push('');
 
   sendLines(nick, lines);
@@ -1040,6 +1040,8 @@ function showInnBartenderGems(nick) {
   lines.push('Buy how many elixirs? [' + maxElixirs + ']');
   lines.push('Or (R)eturn to bar');
   lines.push('');
+  lines.push(r('Well? (? for menu)'));
+  lines.push('');
 
   sendLines(nick, lines);
   setState(nick, PLAYER_STATES.INN_BARTENDER_GEMS);
@@ -1058,6 +1060,8 @@ function showInnBartenderBribe(nick) {
     '"Ahh..Bribe...Now you are speaking my language friend!',
     'I will let you borrow my room keys...on one condition..',
     'That ya pay me ' + bribeCost + ' gold!!" Deal? [Y/N]',
+    '',
+    r('Deal? (? for menu)'),
     ''
   ];
 
@@ -1105,7 +1109,8 @@ function showSethAble(nick, returnTo = 'inn') {
   }
 
   lines.push('');
-  lines.push(w('(R)eturn (? for menu)'));
+  const sethPrompt = player.sex === 1 ? 'Well? (A,F,R) (? for menu)' : 'Well? (A,R) (? for menu)';
+  lines.push(r(sethPrompt));
   lines.push('');
 
   sendLines(nick, lines);
@@ -1196,7 +1201,7 @@ function showViolet(nick, returnTo = 'inn') {
   lines.push('');
   lines.push('Your Charm: ' + g(player.charm));
   lines.push('');
-  lines.push(w('(R)eturn (? for menu)'));
+  lines.push(r('Well? (N,W,K,P,S,G,C,M,R) (? for menu)'));
   lines.push('');
 
   sendLines(nick, lines);
@@ -1213,6 +1218,8 @@ function showInnRoom(nick) {
 
   lines.push(w('(Y)es'));
   lines.push(w('(N)o'));
+  lines.push('');
+  lines.push(r('Get a room? (Y,N) (? for menu)'));
   lines.push('');
 
   sendLines(nick, lines);
@@ -1333,6 +1340,8 @@ function showDarkCloakGamble(nick) {
     '  You have ' + player.gold + ' gold.',
     '',
     '  Enter amount (or A for all-in):',
+    '',
+    r('Wager amount (? for menu)'),
     ''
   ]);
   setState(nick, 'dark_cloak_gamble');
@@ -1369,16 +1378,30 @@ function showDarkCloakEtchings(nick) {
 }
 
 function showDarkCloakBartenderMenu(nick, cmd) {
+  const player = loadPlayer(nick);
+  if (!player) return;
+
+  const isMale = player.sex === 0;
+  const charPrompt = isMale ? 'V' : 'S';
+
   switch (cmd) {
     case 'r':
       showDarkCloak(nick);
       break;
     case 'v':
-    case 's':
-      if (cmd === 'v') {
+      if (isMale) {
         showViolet(nick, 'darkcloak');
       } else {
+        sendNotice(nick, 'Bartender - (' + charPrompt + '),G,B,C,R (? for menu)');
+        showDarkCloak(nick);
+      }
+      break;
+    case 's':
+      if (!isMale) {
         showSethAble(nick, 'darkcloak');
+      } else {
+        sendNotice(nick, 'Bartender - (' + charPrompt + '),G,B,C,R (? for menu)');
+        showDarkCloak(nick);
       }
       break;
     case 'g':
@@ -1399,7 +1422,8 @@ function showDarkCloakBartenderMenu(nick, cmd) {
       showDarkCloakBartender(nick);
       break;
     default:
-      sendNotice(nick, 'Bartender - V,S,G,B,C,R (? for menu)');
+      sendNotice(nick, 'Bartender - (' + charPrompt + '),G,B,C,R (? for menu)');
+      showDarkCloak(nick);
   }
 }
 
@@ -4390,7 +4414,11 @@ function handleCommand(nick, cmd, args) {
         showInnBartenderBribe(nick);
         break;
       }
-      sendNotice(nick, 'Bartender - V,G,B,R');
+      if (cmdLower === '?') {
+        showInnBartender(nick);
+        break;
+      }
+      sendNotice(nick, 'Bartender - (V)iolet, (G)ems, (B)ribe, (R)eturn (? for menu)');
       showInn(nick);
       break;
 
@@ -4438,17 +4466,26 @@ function handleCommand(nick, cmd, args) {
               player.hp = Math.min(player.maxhp, player.hp + hpGain);
               lines.push('YOU DRINK THE BREW AND YOUR SOUL REJOICES!');
               lines.push('You gain ' + hpGain + ' HP!');
+              lines.push('');
+              lines.push(r('Well? (H,S,V) (? for menu)'));
+              lines.push('');
               break;
             case 's':
               player.str += gemCount;
               lines.push('YOU DRINK THE BREW AND YOUR SOUL REJOICES!');
               lines.push('You gain ' + gemCount + ' STR!');
+              lines.push('');
+              lines.push(r('Well? (H,S,V) (? for menu)'));
+              lines.push('');
               break;
             case 'v':
               player.maxhp += gemCount * 5;
               player.hp += gemCount * 5;
               lines.push('YOU DRINK THE BREW AND YOUR SOUL REJOICES!');
               lines.push('You gain ' + (gemCount * 5) + ' MAX HP!');
+              lines.push('');
+              lines.push(r('Well? (H,S,V) (? for menu)'));
+              lines.push('');
               break;
             default:
               player.gems += gemCount * 2;
