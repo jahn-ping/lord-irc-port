@@ -2781,7 +2781,7 @@ function processAttack(nick) {
     const currentPlayer = loadPlayer(nick);
     const hasSkill = currentPlayer && currentPlayer.skill_charges_max > 0 && currentPlayer.skill_charges_active > 0;
     if (hasSkill) {
-      const skillText = getSkillMenuText(player);
+      const skillText = getSkillMenuText(currentPlayer);
       lines.push(w('(A)ttack ') + skillText + w(' (S)tats (R)un'));
     } else {
       lines.push(w('(A)ttack (S)tats (R)un'));
