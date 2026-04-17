@@ -4953,6 +4953,17 @@ function handleCommand(nick, cmd, args) {
 
     case PLAYER_STATES.INN_CONVO_ADD:
       {
+        if (cmdLower === '?') {
+          clearMessageQueue(nick);
+          sendLines(nick, [
+            '',
+            '  Share your feelings now... (Max 75 char!)',
+            '',
+            r('Type your message (R to cancel) (? for menu)'),
+            ''
+          ]);
+          break;
+        }
         const player = loadPlayer(nick);
         if (cmdLower === 'r') {
           showInnConvo(nick);
@@ -4971,6 +4982,11 @@ function handleCommand(nick, cmd, args) {
     case PLAYER_STATES.INN_ANNOUNCEMENT:
       if (cmdLower === 'r') {
         showInn(nick);
+        break;
+      }
+      if (cmdLower === '?') {
+        clearMessageQueue(nick);
+        showMakeAnnouncement(nick);
         break;
       }
       {
@@ -5002,6 +5018,7 @@ function handleCommand(nick, cmd, args) {
         break;
       }
       if (cmdLower === '?') {
+        clearMessageQueue(nick);
         showInnBartender(nick);
         break;
       }
@@ -5371,6 +5388,7 @@ function handleCommand(nick, cmd, args) {
           break;
         }
         if (cmdLower === '?') {
+          clearMessageQueue(nick);
           showViolet(nick, returnTo);
           break;
         }
@@ -5560,7 +5578,7 @@ function handleCommand(nick, cmd, args) {
         showInn(nick);
         break;
       }
-      if (cmdLower === '?') {
+      if (cmdLower === 'j' || cmdLower === '?') {
         clearMessageQueue(nick);
         showInn(nick);
         break;
