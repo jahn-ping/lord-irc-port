@@ -221,73 +221,148 @@ export function processForestEvent(nick, event) {
       break;
       
     case 'fairy':
-      result.outcomes.push('A tiny fairy appears before you!');
-      result.outcomes.push('"Bless me!" you implore the small figure.');
+      result.outcomes.push('                  ....                         ');
+      result.outcomes.push("         .     ..........''....   ........         ");
+      result.outcomes.push("       ...........        ..  ......     ..        ");
+      result.outcomes.push("      .. .          Extra Special Event!  ..       ");
+      result.outcomes.push("      ....         -=- -=- -=- -=- -=- -=-  ..      ");
+      result.outcomes.push("      ... Your journey is interrupted by  ....     ");
+      result.outcomes.push("   ... ..the sound of tiny voices. It seems.. .    ");
+      result.outcomes.push(" ';. ....you've come across a group of     ..  ..'c");
+      result.outcomes.push(".od;'.''. fairies bathing ..              ..  .'ok");
+      result.outcomes.push(".lo;'':ol'.                . .             .. ...cx");
+      result.outcomes.push(" .''.';cl:'.         ....... .            ..  ':;:");
+      result.outcomes.push("      .''.     ......',;co:..             ..  ':;c:");
+      result.outcomes.push("        ...........',:lxdc,...    ....   ...  .;;od");
+      result.outcomes.push("         ..       .,cl:,.    ......  .....     .,lc");
+      result.outcomes.push("                   ,:.                          ...");
       result.outcomes.push('');
-      result.outcomes.push('"Very well." she agrees. "But we\'re still');
-      result.outcomes.push('angry at you! What would you like?"');
-      result.outcomes.push('');
-      result.outcomes.push('(G)ems - Pray for fortune');
-      result.outcomes.push('(H)orse - Seek a companion');
-      result.outcomes.push('(K)iss - Receive healing');
-      result.outcomes.push('');
-      result.outcomes.push('Well? [G/H/K] (? for menu)');
-      result.prompt = 'fairy_blessing';
-      break;
-
-    case 'fairy_gems':
-      if (player.fairies > 0) {
-        const gemsCaught = random(1, 3);
-        player.gems += gemsCaught;
-        result.outcomes.push('"Very well." the fairy nods.');
-        result.outcomes.push('');
-        result.outcomes.push('A single tear rolls down her cheek and');
-        result.outcomes.push('transforms into a beautiful gem!');
-        result.outcomes.push('');
-        result.outcomes.push('You caught ' + gemsCaught + ' gem(s)!');
-      } else {
-        result.outcomes.push('You have no fairies to catch!');
-      }
       result.autoContinue = true;
       break;
 
-    case 'fairy_horse':
-      if (player.horse !== HORSE_NONE) {
-        result.outcomes.push('"Oh nevermind, you already have a horse."');
-      } else {
+    case 'fairy_noticed':
+      result.outcomes.push('YOU ARE NOTICED!');
+      result.outcomes.push('');
+      result.outcomes.push('The small things encircle you. A small wet female');
+      result.outcomes.push('bangs your shin. "How dare you spy on us, human!"');
+      result.outcomes.push('you can\'t help but smile, the defiance in her');
+      result.outcomes.push('silvery voice is truly a sight, you think to');
+      result.outcomes.push('yourself. Further contemplation is interrupted by');
+      result.outcomes.push('another sharpfully painful prod.');
+      result.outcomes.push('');
+      result.outcomes.push('(A)sk for a blessing');
+      result.outcomes.push('(T)ry to catch one to show your friends');
+      result.outcomes.push('');
+      result.outcomes.push(r('Your choice? [A/T] (? for menu)'));
+      result.prompt = 'fairy_interact';
+      break;
+
+    case 'fairy_blessing':
+      {
+        const roll = random(1, 100);
+        if (roll < 30) {
+          const gemsCaught = random(1, 3);
+          player.gems += gemsCaught;
+          result.outcomes.push('"Very well." the fairy nods.');
+          result.outcomes.push('');
+          result.outcomes.push('A single tear rolls down her cheek and');
+          result.outcomes.push('transforms into a beautiful gem!');
+          result.outcomes.push('');
+          result.outcomes.push('You caught ' + gemsCaught + ' gem(s)!');
+        } else if (roll < 80) {
+          const lvl = player.level;
+          const xpEarned = lvl * lvl * 10;
+          player.xp = clamp(player.xp + xpEarned, 0, config.maxXP);
+          result.outcomes.push('angry at you! Your blessing is...Fairy Lore!');
+          result.outcomes.push('You earned ' + xpEarned + ' experience points.');
+        } else {
+          player.hp = player.maxhp;
+          result.outcomes.push('angry at you!');
+          result.outcomes.push('');
+          result.outcomes.push('Your blessing is...a kiss from Teesha!');
+          result.outcomes.push('');
+          result.outcomes.push('A fairy near her wordlessly upstretches its arms');
+          result.outcomes.push('to you.');
+          result.outcomes.push('');
+          result.outcomes.push('THE KISS IS STRANGELY FULFILLING!');
+          result.outcomes.push('(You\'re refreshed)');
+        }
+        result.autoContinue = true;
+      }
+      break;
+
+    case 'fairy_catch':
+      {
         const roll = random(1, 100);
         if (roll >= 50) {
-          player.horse = HORSE_WHITE;
-          result.outcomes.push('A pure white mare nudges your back!');
+          result.outcomes.push('YOU MAKE A WILD GRAB FOR THE SMALL FIGURES!');
           result.outcomes.push('');
-          result.outcomes.push('A COMPANION FOR YOUR JOURNEY!');
-          const fightsGain = Math.floor(500 * 0.25);
-          player.fights = clamp(player.fights + fightsGain, 0, 500);
-          result.outcomes.push('You gain ' + fightsGain + ' forest fights!');
+          result.outcomes.push('Your hand finally connects with.... A FAIRY!');
+          result.outcomes.push('');
+          result.outcomes.push('You throw the screaming creature into your pouch. What hidden');
+          result.outcomes.push('powers could it have?');
+          result.outcomes.push('');
+          result.outcomes.push('You think now would be splendid time to leave.');
+          player.fairies = (player.fairies || 0) + 1;
         } else {
-          player.horse = HORSE_BLACK;
-          result.outcomes.push('A shiny black stallion surfaces from the mist!');
+          result.outcomes.push('YOU MAKE A WILD GRAB FOR THE SMALL FIGURES!');
           result.outcomes.push('');
-          result.outcomes.push('A COMPANION FOR YOUR JOURNEY!');
-          const fightsGain = Math.floor(500 * 0.25);
-          player.fights = clamp(player.fights + fightsGain, 0, 500);
-          result.outcomes.push('You gain ' + fightsGain + ' forest fights!');
+          result.outcomes.push('Your hand finally connects with.... NOTHING!');
         }
+        result.autoContinue = true;
       }
+      break;
+
+    case 'creepy':
+      result.outcomes.push('                 ** CREEPY EVENT **');
+      result.outcomes.push('Your quest is interrupted by a strange wailing noise.');
+      result.outcomes.push('');
+      result.outcomes.push('Closer inspection reveals the eerie howl seems to be');
+      result.outcomes.push('coming from a nearby cave.');
+      result.outcomes.push('');
+      result.nextEvent = 'creepy_olivia';
+      break;
+
+    case 'creepy_olivia':
+      result.outcomes.push('WAIT A SEC!');
+      result.outcomes.push('');
+      result.outcomes.push('It\'s just your old pal Olivia the bodyless woman.');
+      result.outcomes.push('');
+      result.outcomes.push('Olivia greets you with a head hug.');
+      result.prompt = 'creepy_olivia';
+      break;
+
+    case 'creepy_olivia_head':
+      result.outcomes.push('                 A FREUDIAN SLIP');
+      result.outcomes.push('"Watcha thinkin?" you ask politely.');
+      result.outcomes.push('');
+      result.outcomes.push('Olivia nudges herself to a better speaking position.');
+      result.outcomes.push('');
+      result.outcomes.push('"Well. I was thinking about when I had a body. A very');
+      result.outcomes.push('beautiful one if I do say myself. Men followed me like');
+      result.outcomes.push('flies on honey. Especially one man. At the time he was');
+      result.outcomes.push('a town crier at Penyon Manor."');
+      result.outcomes.push('');
+      result.outcomes.push('"It is because of him I am like this..You see, he.."');
+      result.outcomes.push('');
+      result.outcomes.push('"Getting bored here. Gotta go, see ya," you break');
+      result.outcomes.push('in rudely.');
+      result.outcomes.push('You travel back to the forest entrance.');
       result.autoContinue = true;
       break;
 
-    case 'fairy_kiss':
-      const lvl = player.level;
-      const xpEarned = lvl * lvl * 10;
-      player.xp = clamp(player.xp + xpEarned, 0, config.maxXP);
-      result.outcomes.push('The fairy kisses your forehead!');
+    case 'creepy_olivia_kiss':
+      result.outcomes.push('You pucker up and go in for the kiss...');
       result.outcomes.push('');
-      result.outcomes.push('You feel refreshed and wiser!');
-      result.outcomes.push('You receive ' + xpEarned + ' experience!');
+      result.outcomes.push('Olivia\'s ghostly lips feel surprisingly real!');
+      result.outcomes.push('');
+      result.outcomes.push('You feel refreshed and stronger!');
+      const strGain = random(1, 3);
+      player.str += strGain;
+      result.outcomes.push('You gain ' + strGain + ' strength!');
       result.autoContinue = true;
       break;
-      
+
     case 'nothing':
       result.outcomes.push('You continue on your way.');
       break;
@@ -909,6 +984,28 @@ export function withdrawBank(nick, amount) {
   savePlayer(nick, player);
   
   return { success: true, amount, newBalance: player.bank };
+}
+
+export function robBank(nick) {
+  const player = loadPlayer(nick);
+  if (!player) return { error: 'Player not found!' };
+
+  if (player.fairies <= 0) {
+    return { error: 'You need a fairy to rob the bank!' };
+  }
+
+  const stealTable = [500, 999, 4000, 7992, 13500, 26973, 32000, 63936, 62500, 124875, 108000, 215784, 171500, 342657, 256000, 511488, 364500, 728271, 500000, 999000, 665500, 1329669, 864000, 1726272];
+  const levelIndex = Math.min(Math.max(player.level - 1, 0) * 2, stealTable.length - 2);
+  const minStolen = stealTable[levelIndex];
+  const maxStolen = stealTable[levelIndex + 1];
+  const stolen = Math.floor(Math.random() * (maxStolen - minStolen + 1)) + minStolen;
+
+  player.fairies = Math.max(0, player.fairies - 1);
+  player.gold = clamp(player.gold + stolen, 0, config.maxGold);
+
+  savePlayer(nick, player);
+
+  return { success: true, stolen, total: player.gold };
 }
 
 export function healAtHealer(nick) {

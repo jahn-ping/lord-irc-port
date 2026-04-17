@@ -378,5 +378,11 @@ export const forestEvents = [
     chance: 2,
     message: 'Through the trees, you spot a faint light...',
     type: 'darkcloak'
+  },
+  {
+    name: 'Creepy Olivia',
+    chance: 3,
+    message: 'Your quest is interrupted by a strange wailing noise...',
+    type: 'creepy'
   }
 ];

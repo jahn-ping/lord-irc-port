@@ -48,6 +48,7 @@ const PLAYER_STATES = {
   CONFIRM_LEAVE_HUT: 'confirm_leave_hut',
   INN_CONVO: 'inn_convo',
   INN_CONVO_ADD: 'inn_convo_add',
+  INN_ANNOUNCEMENT: 'inn_announcement',
   INN_SETH: 'inn_seth',
   INN_VIOLET: 'inn_violet',
   INN_ROOM: 'inn_room',
@@ -121,6 +122,8 @@ const queueVersion = new Map();
 
 const innConvo = [];
 const innNewConvo = [];
+const innAnnouncements = [];
+const MAX_ANNOUNCEMENTS = 10;
 
 const baraksBooks = {
   'Dirty Deeds': ['Page 1: The art of mischief...', 'Page 2: Be sneaky!'],
@@ -725,6 +728,7 @@ function showFullStats(nick) {
     'Weapon        : ' + g(stats.weapon) + '     ' + w('Atk Strength : ' + stats.str),
     'Armour        : ' + g(stats.armor) + '     ' + w('Def Strength : ' + stats.def),
     'Charm         : ' + g(stats.charm) + '     ' + w('Gems         : ' + stats.gems),
+    'Fairies       : ' + g(player.fairies || 0),
     ''
   ];
 
@@ -810,25 +814,39 @@ function showBank(nick) {
   const stats = game.getPlayerStats(nick);
   if (!stats) return;
 
-  sendLines(nick, [
+  const player = loadPlayer(nick);
+  const fairyCount = player.fairies || 0;
+
+  const lines = [
     '',
     '  Ye Olde Bank',
     border(),
+    '  The bank is dark and smells of old money.',
     '',
-    '  Gold in hand: ' + g(game.formatNumber(stats.gold)),
-    '  Gold in bank: ' + g(game.formatNumber(stats.bank)),
-    '',
-    border(),
-    '  The banker smiles at you. "What can I do for you?"',
-    '',
-    w('(D)eposit Gold'),
-    w('(W)ithdraw Gold'),
-    w('(R)eturn to town'),
-    '',
-    statLine(nick),
-    r('Ye Olde Bank') + w('  (D,W,R,Q) (? for menu)'),
+    '  Your gold: ' + g(game.formatNumber(stats.gold)),
+    '  Bank balance: ' + g(game.formatNumber(stats.bank)),
     ''
-  ]);
+  ];
+
+  if (fairyCount > 0) {
+    lines.push(w('(B)ribe the guard (' + fairyCount + ' fair' + (fairyCount === 1 ? 'y' : 'ies') + ')'));
+  }
+
+  lines.push(w('(D)eposit gold'));
+  lines.push(w('(W)ithdraw gold'));
+  lines.push(w('(R)eturn to town'));
+  lines.push('');
+  lines.push(statLine(nick));
+
+  if (fairyCount > 0) {
+    lines.push(r('Ye Olde Bank') + w('  (B,D,W,R,Q) (? for menu)'));
+  } else {
+    lines.push(r('Ye Olde Bank') + w('  (D,W,R,Q) (? for menu)'));
+  }
+
+  lines.push('');
+
+  sendLines(nick, lines);
   setState(nick, PLAYER_STATES.BANK);
 }
 
@@ -957,7 +975,15 @@ function showInnConvo(nick) {
     ''
   ];
 
-  if (innConvo.length === 0) {
+  if (innAnnouncements.length > 0) {
+    lines.push(r('*** ANNOUNCEMENTS ***'));
+    for (let i = 0; i < innAnnouncements.length; i++) {
+      lines.push(innAnnouncements[i]);
+    }
+    lines.push('');
+  }
+
+  if (innConvo.length === 0 && innNewConvo.length === 0) {
     lines.push('  The bar is quiet... no one is talking.');
     lines.push('');
   } else {
@@ -984,6 +1010,39 @@ function showInnConvo(nick) {
 
   sendLines(nick, lines);
   setState(nick, PLAYER_STATES.INN_CONVO);
+}
+
+function showMakeAnnouncement(nick) {
+  const lines = [
+    '',
+    '  Make an Announcement',
+    border(),
+    '',
+    '  Type your announcement below.',
+    '  Maximum 75 characters.',
+    '',
+    w('(R)eturn to inn'),
+    ''
+  ];
+
+  sendLines(nick, lines);
+  setState(nick, PLAYER_STATES.INN_ANNOUNCEMENT);
+}
+
+function addAnnouncement(nick, message) {
+  if (!message || message.trim().length === 0) return false;
+
+  const player = loadPlayer(nick);
+  if (!player) return false;
+
+  const announcement = player.name + '`%: ' + message.trim().substring(0, 75);
+  innAnnouncements.unshift(announcement);
+
+  if (innAnnouncements.length > MAX_ANNOUNCEMENTS) {
+    innAnnouncements.pop();
+  }
+
+  return true;
 }
 
 function showInnBartender(nick) {
@@ -1476,18 +1535,35 @@ function showPeople(nick) {
 }
 
 function showNews(nick) {
-  sendLines(nick, [
+  let dailyNews = [];
+  try {
+    const newsData = fs.readFileSync('./dailyHappenings.json', 'utf8');
+    const parsed = JSON.parse(newsData);
+    dailyNews = parsed.dailyHappenings || [];
+  } catch (e) {
+    console.log('[NEWS] Could not load dailyHappenings.json:', e.message);
+  }
+
+  const lines = [
     '',
-    '  Daily News',
-    border(),
-    '',
-    '  ' + g('A small girl was missing today.'),
-    '  The town is in grief.',
-    '  ' + g('Dragon sighting reported by a drunken old man.'),
-    '',
+    '  The Daily Happenings....',
     border(),
     ''
-  ]);
+  ];
+
+  if (dailyNews.length === 0) {
+    lines.push('  No news today.');
+  } else {
+    dailyNews.forEach(news => {
+      lines.push('  ' + news);
+    });
+  }
+
+  lines.push('');
+  lines.push(border());
+  lines.push('');
+
+  sendLines(nick, lines);
   setState(nick, PLAYER_STATES.NEWS);
 }
 
@@ -2381,6 +2457,10 @@ function startFight(nick) {
 
       const userState = getState(nick);
       userState.temp = { eventOutcome: event };
+
+      if (event.nextEvent) {
+        userState.temp.nextEvent = event.nextEvent;
+      }
 
       if (event.prompt === 'darkcloak') {
         showDarkCloak(nick);
@@ -4165,11 +4245,76 @@ function handleCommand(nick, cmd, args) {
           break;
         }
 
+        if (event && event.prompt === 'creepy_olivia') {
+          if (cmdLower === 'g') {
+            const result = game.processForestEvent(nick, { type: 'creepy_olivia_head' });
+            const lines = ['', border(), r('  EVENT: Creepy Olivia'), border(), ''];
+            result.outcomes.forEach(o => lines.push('  ' + o));
+            lines.push('');
+            sendLines(nick, lines);
+            savePlayer(nick, loadPlayer(nick));
+            showForest(nick);
+          } else if (cmdLower === 'k') {
+            const result = game.processForestEvent(nick, { type: 'creepy_olivia_kiss' });
+            const lines = ['', border(), r('  EVENT: Creepy Olivia'), border(), ''];
+            result.outcomes.forEach(o => lines.push('  ' + o));
+            lines.push('');
+            sendLines(nick, lines);
+            savePlayer(nick, loadPlayer(nick));
+            showForest(nick);
+          } else if (cmdLower === '?') {
+            sendLines(nick, [
+              '',
+              border(),
+              r('  EVENT: Creepy Olivia'),
+              border(),
+              '',
+              '  WAIT A SEC!',
+              '',
+              '  It\'s just your old pal Olivia the bodyless woman.',
+              '',
+              '  Olivia greets you with a head hug.',
+              '',
+              w('  (G)et inside her head'),
+              w('  (K)iss her.'),
+              '',
+              r('  What will it be? [G/K] (? for menu)'),
+              ''
+            ]);
+          } else {
+            sendNotice(nick, 'What will it be? [G/K] (? for menu)');
+          }
+          break;
+        }
+
         switch (cmdLower) {
           case 'r': case 'R':
             flushQueue(nick);
             {
+              const nextEvent = us.temp.nextEvent;
               const nextState = us.temp.nextState;
+
+              if (nextEvent) {
+                us.temp = {};
+                us.displayMode = false;
+                const result = game.processForestEvent(nick, { type: nextEvent });
+                if (result) {
+                  const lines = ['', border(), r('  EVENT: ' + result.event), border(), ''];
+                  result.outcomes.forEach(o => lines.push('  ' + o));
+                  if (result.prompt) {
+                    lines.push('');
+                    us.temp.eventOutcome = result;
+                    sendLines(nick, lines);
+                    setState(nick, PLAYER_STATES.FOREST_EVENT);
+                    return;
+                  }
+                  lines.push('');
+                  sendLines(nick, lines);
+                }
+                showForest(nick);
+                return;
+              }
+
               us.temp = {};
               us.displayMode = false;
               if (nextState === 'dwarf') {
@@ -4461,6 +4606,27 @@ function handleCommand(nick, cmd, args) {
         showMainMenu(nick);
         break;
       }
+      if (cmdLower === 'b') {
+        const result = game.robBank(nick);
+        if (result.success) {
+          sendLines(nick, [
+            '',
+            r('** ROBBERY **'),
+            'The fairy escapes from your pocket and she unlocks',
+            'the bank door for you.',
+            '',
+            'You manage to make off with ' + g(game.formatNumber(result.stolen)) + ' gold.',
+            'Total gold: ' + g(game.formatNumber(result.total)),
+            '',
+            'The fairy escapes...',
+            ''
+          ]);
+        } else {
+          sendNotice(nick, result.error);
+        }
+        showBank(nick);
+        break;
+      }
       if (cmdLower === 'd') {
         sendNotice(nick, 'Enter amount to deposit:');
         setState(nick, PLAYER_STATES.BANK_DEPOSIT);
@@ -4559,12 +4725,7 @@ function handleCommand(nick, cmd, args) {
           break;
         }
         if (cmdLower === 'm') {
-          setState(nick, PLAYER_STATES.INN_CONVO_ADD);
-          sendLines(nick, [
-            '',
-            '  Share your feelings now... (Max 75 char!)',
-            ''
-          ]);
+          showMakeAnnouncement(nick);
           break;
         }
         if (cmdLower === 'l') {
@@ -4604,6 +4765,22 @@ function handleCommand(nick, cmd, args) {
           sendNotice(nick, 'Your words echo through the inn...');
         }
         showInnConvo(nick);
+      }
+      break;
+
+    case PLAYER_STATES.INN_ANNOUNCEMENT:
+      if (cmdLower === 'r') {
+        showInn(nick);
+        break;
+      }
+      {
+        const msg = cmd.trim();
+        if (msg && msg.length > 0) {
+          if (addAnnouncement(nick, msg)) {
+            sendNotice(nick, 'Your announcement has been posted!');
+          }
+        }
+        showInn(nick);
       }
       break;
 
