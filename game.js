@@ -1130,16 +1130,18 @@ export function isPlayerDead(nick) {
   return false;
 }
 
-export function killPlayer(nick, minutes, killedBy = 'Unknown') {
+export function killPlayer(nick, minutes, killedBy = 'Unknown', monsterGold = 0) {
   const player = loadPlayer(nick);
-  if (!player) return false;
+  if (!player) return { dead: false, lostGold: 0 };
   
+  const lostGold = Math.floor(player.gold * 0.1);
+  player.gold -= lostGold;
   player.dead = 1;
   player.dead_until = Date.now() + (minutes * 60 * 1000);
   player.killed_by = killedBy;
   player.hp = 1;
   savePlayer(nick, player);
-  return true;
+  return { dead: true, lostGold };
 }
 
 export function resurrectPlayer(nick) {

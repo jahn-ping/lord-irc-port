@@ -64,6 +64,7 @@ const PLAYER_STATES = {
   FOREST_SCROLL: 'forest_scroll',
   FOREST_SCROLL_LOCATION: 'forest_scroll_location',
   FOREST_HAG: 'forest_hag',
+  FOREST_EVENT_CONTINUE: 'forest_event_continue',
   DARK_CLOAK: 'dark_cloak',
   DARK_CLOAK_BARTENDER: 'dark_cloak_bartender',
   DARK_CLOAK_CONFIRM_LEAVE: 'dark_cloak_confirm_leave',
@@ -79,7 +80,8 @@ const PLAYER_STATES = {
   BARAK_READ: 'barak_read',
   BARAK_LAUGH: 'barak_laugh',
   BARAK_WALKIN: 'barak_walkin',
-  BARAK_APOLOGIZE: 'barak_apologize'
+  BARAK_APOLOGIZE: 'barak_apologize',
+  BARAK_CONFIRM_LEAVE: 'barak_confirm_leave'
 };
 
 const userStates = new Map();
@@ -1798,13 +1800,18 @@ function processMasterAttack(nick) {
     const newPlayerHp = Math.max(0, stats.hp - actualDamage);
 
     if (newPlayerHp <= 0) {
+      const killResult = game.killPlayer(nick, 10, 'Master: ' + monster.name);
+      lines.push(border());
       lines.push('You have been defeated by ' + monster.name + '!');
-      game.setPlayerHp(nick, newPlayerHp);
+      lines.push('Lost ' + g(game.formatNumber(killResult.lostGold)) + ' gold');
+      lines.push('You are dead for 10 minutes!');
+      lines.push(border());
+      lines.push('');
       userState.currentMonster = null;
       userState.enemyFirstStrike = false;
       flushQueue(nick);
       sendLines(nick, lines);
-      showTraining(nick);
+      clearState(nick);
       return;
     }
 
@@ -1872,13 +1879,13 @@ function processMasterAttack(nick) {
     const newPlayerHp = Math.max(0, stats.hp - actualDamage);
     monsterDamageMsg = monster.name + ' hits you for ' + g(actualDamage) + ' damage!';
 
-    if (newPlayerHp <= 0) {
-      game.killPlayer(nick, 10, 'Master: ' + monster.name);
-
+if (newPlayerHp <= 0) {
+      const killResult = game.killPlayer(nick, 10, 'Player: ' + monster.name);
       lines.push(border());
       lines.push('You have been defeated by ' + monster.name + '!');
+      lines.push('Lost ' + g(game.formatNumber(killResult.lostGold)) + ' gold');
       lines.push('You are dead for 10 minutes!');
-      border()
+      lines.push(border());
       lines.push('');
 
       userState.currentMonster = null;
@@ -2765,8 +2772,8 @@ function processAttack(nick) {
     }
 
     if (newPlayerHp <= 0) {
-      game.killPlayer(nick, 10, 'Monster: ' + monster.name);
-      lines.push('DEAD! Killed by ' + monster.name + ' - Dead for 10 minutes!');
+      const killResult = game.killPlayer(nick, 10, 'Monster: ' + monster.name);
+      lines.push('DEAD! Killed by ' + monster.name + ' - Lost ' + g(game.formatNumber(killResult.lostGold)) + ' gold - Dead for 10 minutes!');
       userState.currentMonster = null;
       userState.enemyFirstStrike = false;
       flushQueue(nick);
@@ -3949,12 +3956,15 @@ function handleCommand(nick, cmd, args) {
 
     case PLAYER_STATES.BARAK_BREEZE:
       if (cmdLower === 'h' || cmdLower === 'r') {
-        const player = loadPlayer(nick);
-        if (player) {
-          player.baraks_visited_today = 1;
-          savePlayer(nick, player);
-        }
-        showMainMenu(nick);
+        sendLines(nick, [
+          '',
+          'Are you sure you want to leave Barak\'s house? [Y/N]',
+          '',
+          r('(Y)es, (N)o (? for menu)')
+        ]);
+        const us = getState(nick);
+        us.temp.returnTo = 'barak_breeze';
+        setState(nick, PLAYER_STATES.BARAK_CONFIRM_LEAVE);
         break;
       }
       if (cmdLower === 'w' || cmdLower === '') {
@@ -3976,13 +3986,15 @@ function handleCommand(nick, cmd, args) {
 
     case PLAYER_STATES.BARAK_PLAY:
       if (cmdLower === 'h' || cmdLower === 'r' || cmdLower === 'f') {
-        const player = loadPlayer(nick);
-        if (player) {
-          player.baraks_visited_today = 1;
-          savePlayer(nick, player);
-        }
-        sendLines(nick, ['', '"You stupid brat!" scream Barak in a fit of rage.', '', 'YOU TRUDGE HOME, FEELING LIKE A LOSER.', '']);
-        showMainMenu(nick);
+        sendLines(nick, [
+          '',
+          'Are you sure you want to leave Barak\'s house? [Y/N]',
+          '',
+          r('(Y)es, (N)o (? for menu)')
+        ]);
+        const us = getState(nick);
+        us.temp.returnTo = 'barak_play';
+        setState(nick, PLAYER_STATES.BARAK_CONFIRM_LEAVE);
         break;
       }
       if (cmdLower === 'o' || cmdLower === '') {
@@ -4125,7 +4137,15 @@ function handleCommand(nick, cmd, args) {
 
     case PLAYER_STATES.BARAK_WALKIN:
       if (cmdLower === 'a' || cmdLower === '') {
-        showBarakApologize(nick);
+        sendLines(nick, [
+          '',
+          'Are you sure you want to leave Barak\'s house? [Y/N]',
+          '',
+          r('(Y)es, (N)o (? for menu)')
+        ]);
+        const us = getState(nick);
+        us.temp.returnTo = 'barak_walkin';
+        setState(nick, PLAYER_STATES.BARAK_CONFIRM_LEAVE);
         break;
       }
       if (cmdLower === 'k') {
@@ -4165,6 +4185,30 @@ function handleCommand(nick, cmd, args) {
       }
       clearMessageQueue(nick);
       showBarakWalkin(nick);
+      break;
+
+    case PLAYER_STATES.BARAK_CONFIRM_LEAVE:
+      if (cmdLower === 'y' || cmdLower === 'Y') {
+        const player = loadPlayer(nick);
+        if (player) {
+          player.baraks_visited_today = 1;
+          savePlayer(nick, player);
+        }
+        showMainMenu(nick);
+      } else if (cmdLower === 'n' || cmdLower === 'N' || cmdLower === '?') {
+        clearMessageQueue(nick);
+        const us = getState(nick);
+        const returnTo = us.temp.returnTo;
+        if (returnTo === 'barak_play') {
+          showBarakPlay(nick);
+        } else if (returnTo === 'barak_walkin') {
+          showBarakWalkin(nick);
+        } else {
+          showBarakBreeze(nick);
+        }
+      } else {
+        sendNotice(nick, 'Are you sure you want to leave Barak\'s house? [Y/N] (? for menu)');
+      }
       break;
 
     case PLAYER_STATES.FOREST:
@@ -4367,6 +4411,8 @@ function handleCommand(nick, cmd, args) {
         if (event && event.prompt === 'scroll') {
           if (cmdLower === 's') {
             const result = game.processForestEvent(nick, { type: 'scroll_save' });
+            const us = getState(nick);
+            us.temp.eventOutcome = result;
             const lines = ['', border(), r('  EVENT: ' + result.event), border(), ''];
             result.outcomes.forEach(o => lines.push('  ' + o));
             lines.push('');
@@ -4525,9 +4571,13 @@ function handleCommand(nick, cmd, args) {
             const lines = ['', border(), r('  EVENT: Fairy'), border(), ''];
             result.outcomes.forEach(o => lines.push('  ' + o));
             lines.push('');
+            lines.push('Are you leaving? [Y/N]');
+            lines.push('');
+            lines.push(r('(Y)es, (N)o (? for menu)'));
             sendLines(nick, lines);
-            savePlayer(nick, loadPlayer(nick));
-            showForest(nick);
+            const us = getState(nick);
+            us.temp.eventOutcome = result;
+            setState(nick, PLAYER_STATES.FOREST_EVENT_CONTINUE);
           } else if (cmdLower === '?') {
             sendLines(nick, [
               '',
@@ -4693,6 +4743,26 @@ function handleCommand(nick, cmd, args) {
             sendNotice(nick, 'Press R to continue.');
             break;
         }
+      }
+      break;
+
+    case PLAYER_STATES.FOREST_EVENT_CONTINUE:
+      if (cmdLower === 'y' || cmdLower === 'Y') {
+        savePlayer(nick, loadPlayer(nick));
+        showForest(nick);
+      } else if (cmdLower === 'n' || cmdLower === 'N' || cmdLower === '?') {
+        clearMessageQueue(nick);
+        const us = getState(nick);
+        const result = us.temp.eventOutcome;
+        const lines = ['', border(), r('  EVENT: Fairy'), border(), ''];
+        result.outcomes.forEach(o => lines.push('  ' + o));
+        lines.push('');
+        lines.push('Are you leaving? [Y/N]');
+        lines.push('');
+        lines.push(r('(Y)es, (N)o (? for menu)'));
+        sendLines(nick, lines);
+      } else {
+        sendNotice(nick, 'Are you leaving? [Y/N] (? for menu)');
       }
       break;
 
