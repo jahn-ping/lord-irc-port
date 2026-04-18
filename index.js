@@ -2674,8 +2674,9 @@ function startFight(nick) {
         lines.push('');
         lines.push(w('(A)sk for a blessing'));
         lines.push(w('(T)ry to catch one to show your friends'));
+        lines.push(w('(R)eturn to Forest'));
         lines.push('');
-        lines.push(r('Your choice? [A/T] (? for menu)'));
+        lines.push(r('Your choice? [A/T/R] (? for menu)'));
         sendLines(nick, lines);
         setState(nick, PLAYER_STATES.FOREST_EVENT);
       } else {
@@ -4404,6 +4405,59 @@ function handleCommand(nick, cmd, args) {
             ]);
           } else {
             sendNotice(nick, 'Do you take the old man? [Y/N] (? for menu)');
+          }
+          break;
+        }
+
+        if (event && event.prompt === 'fairy_noticed') {
+          if (cmdLower === 'a') {
+            const result = game.processForestEvent(nick, { type: 'fairy_interact' });
+            const us = getState(nick);
+            us.temp.eventOutcome = result;
+            const lines = ['', border(), r('  EVENT: Fairy'), border(), ''];
+            result.outcomes.forEach(o => lines.push('  ' + o));
+            lines.push('');
+            lines.push('  A tiny fairy appears before you!');
+            lines.push('  "Bless me!" you implore the small figure.');
+            lines.push('');
+            lines.push('  "Very well." she agrees. "But we\'re still');
+            lines.push('  angry at you! What would you like?"');
+            lines.push('');
+            lines.push('  (G)ems - Pray for fortune');
+            lines.push('  (H)orse - Seek a companion');
+            lines.push('  (K)iss - Receive healing');
+            lines.push('');
+            lines.push(r('Well? [G/H/K] (? for menu)'));
+            sendLines(nick, lines);
+          } else if (cmdLower === 't') {
+            const result = game.processForestEvent(nick, { type: 'fairy_catch' });
+            const lines = ['', border(), r('  EVENT: Fairy'), border(), ''];
+            result.outcomes.forEach(o => lines.push('  ' + o));
+            lines.push('');
+            sendLines(nick, lines);
+            savePlayer(nick, loadPlayer(nick));
+            showForest(nick);
+          } else if (cmdLower === 'r' || cmdLower === '?') {
+            clearMessageQueue(nick);
+            sendLines(nick, [
+              '',
+              border(),
+              r('  EVENT: Fairy'),
+              border(),
+              '',
+              'YOU ARE NOTICED!',
+              '',
+              'The small things encircle you. A small wet female',
+              'bangs your shin. "How dare you spy on us, human!"',
+              '',
+              w('(A)sk for a blessing'),
+              w('(T)ry to catch one to show your friends'),
+              w('(R)eturn to Forest'),
+              '',
+              r('Your choice? [A/T/R] (? for menu)')
+            ]);
+          } else {
+            sendNotice(nick, 'Your choice? [A/T/R] (? for menu)');
           }
           break;
         }
