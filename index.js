@@ -2071,7 +2071,7 @@ function startPlayerFight(nick, targetIndex) {
     '',
     target.name + ' wields ' + targetWeapon + '!',
     '',
-    target.name + ' HP: (' + g(target.hp) + ' of ' + g(target.maxhp) + ')',
+    target.name + ' HP: (' + (target.hp <= 0 ? r('DEAD') : g(target.hp)) + ' of ' + g(target.maxhp) + ')',
     ''
   ];
 
@@ -2179,7 +2179,7 @@ function startInnRoomFight(nick, targetName) {
     '',
     target.name + ' wields ' + targetWeapon + '!',
     '',
-    target.name + ' HP: (' + g(target.hp) + ' of ' + g(target.maxhp) + ')',
+    target.name + ' HP: (' + (target.hp <= 0 ? r('DEAD') : g(target.hp)) + ' of ' + g(target.maxhp) + ')',
     ''
   ];
 
@@ -3097,6 +3097,21 @@ function endDwarfRound(nick) {
 }
 
 function returnToFightState(nick, lastFightState) {
+  const userState = getState(nick);
+  const monster = userState.currentMonster;
+  
+  if (monster && monster.isPlayer && monster.hp <= 0) {
+    const loserNick = getPlayerNick(monster.name);
+    if (loserNick) {
+      const killResult = game.killPlayer(loserNick, 10, 'Player: ' + nick);
+      const loserMsg = 'SLAUGHTER RESULT: You were defeated by ' + nick + '! Lost ' + g(game.formatNumber(killResult.lostGold)) + ' gold. You are dead for 10 minutes!';
+      sendDirectNotice(loserNick, loserMsg);
+      userState.currentMonster = null;
+      showSlaughter(nick);
+      return;
+    }
+  }
+  
   switch (lastFightState) {
     case PLAYER_STATES.FIGHT:
       showFightState(nick);
@@ -3615,8 +3630,8 @@ function performSkill(nick, skill) {
     const stats = game.getPlayerStats(nick);
     const monsterDamage = Math.floor(Math.random() * (monster.str + 1));
     const armorDefense = game.getArmorDefense(player.armor_num);
-    const actualDamage = monsterDamage - armorDefense;
-        if (actualDamage <= 0) actualDamage = 1;
+    let actualDamage = monsterDamage - armorDefense;
+    if (actualDamage <= 0) actualDamage = 1;
     
     const newHp = Math.max(0, stats.hp - actualDamage);
     game.setPlayerHp(nick, newHp);

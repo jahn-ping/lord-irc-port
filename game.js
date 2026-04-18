@@ -1124,6 +1124,8 @@ export function isPlayerDead(nick) {
   if (player.dead === 1 && (!player.dead_until || now >= player.dead_until)) {
     player.dead = 0;
     player.dead_until = null;
+    player.hp = player.maxhp;
+    player.killed_by = '';
     savePlayer(nick, player);
   }
   
@@ -1154,7 +1156,7 @@ export function resurrectPlayer(nick) {
     player.hp = player.maxhp;
     player.killed_by = '';
     savePlayer(nick, player);
-    console.log('[RESURRECT] ' + player.name + ' has been resurrected');
+    console.log('[RESURRECT] ' + player.name + ' has been resurrected with ' + player.hp + ' HP');
   }
   return true;
 }
