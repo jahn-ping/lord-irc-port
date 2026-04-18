@@ -66,6 +66,7 @@ const PLAYER_STATES = {
   FOREST_HAG: 'forest_hag',
   DARK_CLOAK: 'dark_cloak',
   DARK_CLOAK_BARTENDER: 'dark_cloak_bartender',
+  DARK_CLOAK_CONFIRM_LEAVE: 'dark_cloak_confirm_leave',
   DARK_CLOAK_GAMBLE: 'dark_cloak_gamble',
   DARK_CLOAK_GUESS: 'dark_cloak_guess',
   OTHER_PLACES: 'other_places',
@@ -1361,9 +1362,10 @@ function showDarkCloak(nick) {
     w('(E)xamine Etchings In Table'),
     w('(T)alk with Bartender'),
     w('(G)amble With Locals'),
+    w('(R)eturn to Forest'),
     '',
     statLine(nick),
-    r('Dark Cloak Tavern') + w('  (C,D,E,T,G,R,Q) (? for menu)'),
+    r('Dark Cloak Tavern') + w('  (C,D,E,T,G,R) (? for menu)'),
     ''
   ]);
   setState(nick, PLAYER_STATES.DARK_CLOAK);
@@ -1514,6 +1516,7 @@ function showDarkCloakBartenderMenu(nick, cmd) {
       showDarkCloakBartender(nick);
       break;
     case '?':
+      clearMessageQueue(nick);
       showDarkCloakBartender(nick);
       break;
     default:
@@ -1816,6 +1819,10 @@ function processMasterAttack(nick) {
   lines.push('You hit ' + monster.name + ' for ' + g(damage) + ' damage!');
 
   if (monster.hp <= 0) {
+    if (monster.isPlayer) {
+      returnToFightState(nick, PLAYER_STATES.FIGHT_MASTER);
+      return;
+    }
     monster.hp = 0;
     const xpGain = Math.floor(monster.maxhp * 0.5);
     game.addExperience(nick, xpGain);
@@ -2259,6 +2266,10 @@ function processPlayerAttack(nick) {
   lines.push('You hit ' + monster.name + ' for ' + g(damage) + ' damage!');
 
   if (monster.hp <= 0) {
+    if (monster.isPlayer) {
+      returnToFightState(nick, PLAYER_STATES.FIGHT_PLAYER);
+      return;
+    }
     monster.hp = 0;
 
     const goldStolen = Math.floor(Math.random() * monster.gold) + 10;
@@ -2644,6 +2655,22 @@ function startFight(nick) {
         lines.push('');
         sendLines(nick, lines);
         setState(nick, PLAYER_STATES.FOREST_EVENT);
+      } else if (event.prompt === 'fairy_noticed') {
+        lines.push('YOU ARE NOTICED!');
+        lines.push('');
+        lines.push('The small things encircle you. A small wet female');
+        lines.push('bangs your shin. "How dare you spy on us, human!"');
+        lines.push('you can\'t help but smile, the defiance in her');
+        lines.push('silvery voice is truly a sight, you think to');
+        lines.push('yourself. Further contemplation is interrupted by');
+        lines.push('another sharpfully painful prod.');
+        lines.push('');
+        lines.push(w('(A)sk for a blessing'));
+        lines.push(w('(T)ry to catch one to show your friends'));
+        lines.push('');
+        lines.push(r('Your choice? [A/T] (? for menu)'));
+        sendLines(nick, lines);
+        setState(nick, PLAYER_STATES.FOREST_EVENT);
       } else {
         lines.push('');
         lines.push('(R)eturn to Forest');
@@ -2767,6 +2794,11 @@ function processAttack(nick) {
   lines.push('You hit ' + monster.name + ' for ' + g(result.damage) + ' damage!');
 
   if (result.victory) {
+    if (monster.isPlayer) {
+      const lastFight = userState.lastFightState || PLAYER_STATES.FIGHT_PLAYER;
+      returnToFightState(nick, lastFight);
+      return;
+    }
     const reward = game.winMonsterFight(nick, monster);
     const updatedPlayer = loadPlayer(nick);
     const victoryMsg = 'HP: [' + g(updatedPlayer.hp) + '/' + g(updatedPlayer.maxhp) + '] Gold: [' + g(updatedPlayer.gold) + '] Killed ' + monster.name + '! Got ' + g(game.formatNumber(reward.gold)) + ' gold + ' + g(reward.xp) + ' XP' + (reward.gem ? ' +GEM' : '');
@@ -2886,7 +2918,9 @@ function showDwarfGames(nick) {
     '  Minimum bet: 200 gold',
     '  Maximum bet: 5000 gold',
     '',
-    '  Enter your bet:',
+    w('(R)eturn to Forest'),
+    '',
+    r('Enter your bet (? for menu)'),
     ''
   ];
   
@@ -3546,8 +3580,13 @@ function performSkill(nick, skill) {
       }
       break;
   }
-  
+
   if (monster.hp <= 0) {
+    if (monster.isPlayer) {
+      const lastFight = userState.lastFightState || PLAYER_STATES.FIGHT_PLAYER;
+      returnToFightState(nick, lastFight);
+      return;
+    }
     monster.hp = 0;
     const result = game.winMonsterFight(nick, monster);
     if (result) {
@@ -4331,6 +4370,17 @@ function handleCommand(nick, cmd, args) {
             const lines = ['', border(), r('  EVENT: ' + result.event), border(), ''];
             result.outcomes.forEach(o => lines.push('  ' + o));
             lines.push('');
+            lines.push("  You're quite a hero. Unfortunately, the girl seems");
+            lines.push("  to have forgotten the return address. You'll have");
+            lines.push("  to guess.");
+            lines.push('');
+            lines.push('  (C)astle Coldrake');
+            lines.push('  (F)ortress Liddux');
+            lines.push('  (G)annon Keep');
+            lines.push('  (P)enyon Manor');
+            lines.push("  (D)ema's Lair");
+            lines.push('');
+            lines.push(r('Where do we go now? [C/F/G/P/D] (? for menu)'));
             sendLines(nick, lines);
           } else if (cmdLower === 'i') {
             const result = game.processForestEvent(nick, { type: 'scroll_ignore' });
@@ -4339,7 +4389,8 @@ function handleCommand(nick, cmd, args) {
             lines.push('');
             sendLines(nick, lines);
             showForest(nick);
-          } else if (cmdLower === '?') {
+          } else {
+            clearMessageQueue(nick);
             sendLines(nick, [
               '',
               border(),
@@ -4351,14 +4402,11 @@ function handleCommand(nick, cmd, args) {
               '  I am selfish, because this political marriage will',
               '  bring peace. Get me out of here, -a prisoner of war',
               '',
-              '  (S)ave her',
-              '  (I)gnore the girl',
+              w('(S)ave her'),
+              w('(I)gnore the girl'),
               '',
-              '  Well? [S] (? for menu)',
-              ''
+              r('Well? [S/I] (? for menu)')
             ]);
-          } else {
-            sendNotice(nick, 'Well? [S] (? for menu)');
           }
           break;
         }
@@ -4372,7 +4420,8 @@ function handleCommand(nick, cmd, args) {
             lines.push('');
             sendLines(nick, lines);
             showForest(nick);
-          } else if (cmdLower === '?') {
+          } else {
+            clearMessageQueue(nick);
             sendLines(nick, [
               '',
               border(),
@@ -4383,17 +4432,73 @@ function handleCommand(nick, cmd, args) {
               "  to have forgotten the return address. You'll have",
               "  to guess.",
               '',
-              '  (C)astle Coldrake',
-              '  (F)ortress Liddux',
-              '  (G)annon Keep',
-              '  (P)enyon Manor',
-              "  (D)ema's Lair",
+              w('(C)astle Coldrake'),
+              w('(F)ortress Liddux'),
+              w('(G)annon Keep'),
+              w('(P)enyon Manor'),
+              w("(D)ema's Lair"),
               '',
-              '  Where do we go now? [C/F/G/P/D] (? for menu)',
-              ''
+              r('Where do we go now? [C/F/G/P/D] (? for menu)')
+            ]);
+          }
+          break;
+        }
+
+        if (event && event.prompt === 'fairy_interact') {
+          if (cmdLower === 'a') {
+            const result = game.processForestEvent(nick, { type: 'fairy_blessing' });
+            const lines = ['', border(), r('  EVENT: Fairy'), border(), ''];
+            result.outcomes.forEach(o => lines.push('  ' + o));
+            lines.push('');
+            lines.push('(G)ems - Pray for fortune');
+            lines.push('(H)orse - Seek a companion');
+            lines.push('(K)iss - Receive healing');
+            lines.push('');
+            lines.push(r('Well? [G/H/K] (? for menu)'));
+            sendLines(nick, lines);
+            userState.temp.eventOutcome = result;
+          } else if (cmdLower === 't') {
+            const result = game.processForestEvent(nick, { type: 'fairy_catch' });
+            const lines = ['', border(), r('  EVENT: Fairy'), border(), ''];
+            result.outcomes.forEach(o => lines.push('  ' + o));
+            lines.push('');
+            sendLines(nick, lines);
+            savePlayer(nick, loadPlayer(nick));
+            showForest(nick);
+          } else if (cmdLower === '?') {
+            sendLines(nick, [
+              '',
+              border(),
+              r('  EVENT: Fairy'),
+              border(),
+              '',
+              'YOU ARE NOTICED!',
+              '',
+              'The small things encircle you. A small wet female',
+              'bangs your shin. "How dare you spy on us, human!"',
+              '',
+              w('(A)sk for a blessing'),
+              w('(T)ry to catch one to show your friends'),
+              '',
+              r('Your choice? [A/T] (? for menu)')
             ]);
           } else {
-            sendNotice(nick, 'Where do we go now? [C/F/G/P/D] (? for menu)');
+            clearMessageQueue(nick);
+            sendLines(nick, [
+              '',
+              border(),
+              r('  EVENT: Fairy'),
+              border(),
+              '',
+              'YOU ARE NOTICED!',
+              '',
+              'The small things encircle you.',
+              '',
+              w('(A)sk for a blessing'),
+              w('(T)ry to catch one'),
+              '',
+              r('Your choice? [A/T] (? for menu)')
+            ]);
           }
           break;
         }
@@ -4444,7 +4549,25 @@ function handleCommand(nick, cmd, args) {
               ''
             ]);
           } else {
-            sendNotice(nick, 'Well? [G/H/K] (? for menu)');
+            clearMessageQueue(nick);
+            sendLines(nick, [
+              '',
+              border(),
+              r('  EVENT: Fairy'),
+              border(),
+              '',
+              '  A tiny fairy appears before you!',
+              '"Bless me!" you implore the small figure.',
+              '',
+              '"Very well." she agrees. "But we\'re still',
+              'angry at you! What would you like?"',
+              '',
+              w('(G)ems - Pray for fortune'),
+              w('(H)orse - Seek a companion'),
+              w('(K)iss - Receive healing'),
+              '',
+              r('Well? [G/H/K] (? for menu)')
+            ]);
           }
           break;
         }
@@ -5167,10 +5290,11 @@ function handleCommand(nick, cmd, args) {
 
           switch (cmdLower) {
             case 'h':
-              player.hp = Math.min(player.maxhp, player.hp + gemCount);
+              player.maxhp += gemCount;
+              player.hp = player.maxhp;
               lines.push('YOU DRINK THE BREW AND YOUR SOUL REJOICES!');
-              lines.push('You increased your HP by ' + gemCount + '!');
-              lines.push('You now have ' + player.hp + ' HP.');
+              lines.push('You increased your MAX HP by ' + gemCount + '!');
+              lines.push('You now have ' + player.maxhp + ' MAX HP.');
               break;
             case 's':
               player.str += gemCount;
@@ -5666,11 +5790,8 @@ function handleCommand(nick, cmd, args) {
       }
       break;
 
-    case PLAYER_STATES.DARK_CLOAK:
+case PLAYER_STATES.DARK_CLOAK:
       switch (cmdLower) {
-        case 'r':
-          showForest(nick);
-          break;
         case 'c':
           showInnConvo(nick);
           break;
@@ -5686,12 +5807,38 @@ function handleCommand(nick, cmd, args) {
         case 'g':
           showDarkCloakGamble(nick);
           break;
+        case 'r':
+          sendLines(nick, [
+            '',
+            'Are you sure you want to leave Dark Cloak Tavern? [Y/N]',
+            '',
+            r('Well? (Y,N) (? for menu)')
+          ]);
+          setState(nick, PLAYER_STATES.DARK_CLOAK_CONFIRM_LEAVE);
+          break;
         case '?':
           showDarkCloak(nick);
           break;
         default:
           clearMessageQueue(nick);
           showDarkCloak(nick);
+      }
+      break;
+
+    case PLAYER_STATES.DARK_CLOAK_CONFIRM_LEAVE:
+      if (cmdLower === 'y' || cmdLower === 'Y') {
+        showForest(nick);
+      } else if (cmdLower === 'n' || cmdLower === 'N' || cmdLower === '?') {
+        clearMessageQueue(nick);
+        showDarkCloak(nick);
+      } else {
+        clearMessageQueue(nick);
+        sendLines(nick, [
+          '',
+          'Are you sure you want to leave Dark Cloak Tavern? [Y/N]',
+          '',
+          r('Well? (Y,N) (? for menu)')
+        ]);
       }
       break;
 
@@ -5995,11 +6142,21 @@ function handleCommand(nick, cmd, args) {
 
     case PLAYER_STATES.DWARF_BETTING:
       {
+        if (cmdLower === 'r' || cmdLower === 'R') {
+          sendLines(nick, [
+            '',
+            'Leave the dwarf games and return to forest? [Y/N]',
+            '',
+            r('Well? (Y,N) (? for menu)')
+          ]);
+          setState(nick, PLAYER_STATES.CONFIRM_LEAVE_DWARF);
+          break;
+        }
         const bet = parseInt(cmd);
         if (!isNaN(bet) && bet > 0) {
           startDwarfRound(nick, bet);
         } else {
-          sendNotice(nick, 'Please enter a valid bet amount.');
+          clearMessageQueue(nick);
           showDwarfGames(nick);
         }
       }
@@ -6047,10 +6204,17 @@ function handleCommand(nick, cmd, args) {
       if (cmdLower === 'y' || cmdLower === 'Y') {
         userState.currentMonster = null;
         showForest(nick);
-      } else if (cmdLower === 'n' || cmdLower === 'N') {
+      } else if (cmdLower === 'n' || cmdLower === 'N' || cmdLower === '?') {
+        clearMessageQueue(nick);
         showDwarfGames(nick);
       } else {
-        sendNotice(nick, 'Leave the dwarf games and return to forest? (Y/N)');
+        clearMessageQueue(nick);
+        sendLines(nick, [
+          '',
+          'Leave the dwarf games and return to forest? [Y/N]',
+          '',
+          r('Well? (Y,N) (? for menu)')
+        ]);
       }
       break;
 

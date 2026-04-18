@@ -287,7 +287,8 @@ export const forestEvents = [
     name: 'Healing Fairy',
     chance: 8,
     message: 'A glowing fairy appears and sprinkles magic dust on you!',
-    type: 'fairy'
+    type: 'fairy',
+    prompt: 'fairy_noticed'
   },
   {
     name: 'Strange Noise',
