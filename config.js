@@ -1,6 +1,6 @@
 export const config = {
   irc: {
-    server: 'irc.prison.net',
+    server: 'irc.mzima.net',
     port: 6667,
     secure: false,
     nick: 'LORD_1',

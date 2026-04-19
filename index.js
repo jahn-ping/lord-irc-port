@@ -1816,6 +1816,7 @@ function processMasterAttack(nick) {
     }
 
     game.setPlayerHp(nick, newPlayerHp);
+    userState.enemyFirstStrike = false;
     lines.push('');
   }
 
@@ -2263,6 +2264,7 @@ function processPlayerAttack(nick) {
     }
 
     game.setPlayerHp(nick, newPlayerHp);
+    userState.enemyFirstStrike = false;
     lines.push('');
   }
 
@@ -2784,6 +2786,7 @@ function processAttack(nick) {
     }
 
     game.setPlayerHp(nick, newPlayerHp);
+    userState.enemyFirstStrike = false;
     lines.push('');
   }
 
@@ -4452,7 +4455,17 @@ function handleCommand(nick, cmd, args) {
             sendLines(nick, lines);
             savePlayer(nick, loadPlayer(nick));
             showForest(nick);
-          } else if (cmdLower === 'r' || cmdLower === '?') {
+          } else if (cmdLower === 'r') {
+            sendLines(nick, [
+              '',
+              'Are you sure you want to leave? [Y/N]',
+              '',
+              r('(Y)es, (N)o (? for menu)')
+            ]);
+            const us = getState(nick);
+            us.temp.eventOutcome = { prompt: 'fairy_confirm_leave' };
+            setState(nick, PLAYER_STATES.FOREST_EVENT_CONFIRM);
+          } else if (cmdLower === '?') {
             clearMessageQueue(nick);
             sendLines(nick, [
               '',
@@ -4775,6 +4788,7 @@ function handleCommand(nick, cmd, args) {
             {
               const nextEvent = us.temp.nextEvent;
               const nextState = us.temp.nextState;
+              const event = us.temp.eventOutcome;
 
               if (nextEvent) {
                 us.temp = {};
@@ -4797,21 +4811,170 @@ function handleCommand(nick, cmd, args) {
                 return;
               }
 
-              us.temp = {};
-              us.displayMode = false;
-              if (nextState === 'dwarf') {
-                showDwarfGames(nick);
-              } else if (nextState === 'hut') {
-                showForestHut(nick);
+              if (nextState) {
+                us.temp = {};
+                us.displayMode = false;
+                if (nextState === 'dwarf') {
+                  showDwarfGames(nick);
+                } else if (nextState === 'hut') {
+                  showForestHut(nick);
+                } else {
+                  showForest(nick);
+                }
+                return;
+              }
+
+              if (event && event.prompt) {
+                sendLines(nick, [
+                  '',
+                  'Are you sure you want to leave? [Y/N]',
+                  '',
+                  r('(Y)es, (N)o (? for menu)')
+                ]);
+                setState(nick, PLAYER_STATES.FOREST_EVENT_CONFIRM);
               } else {
+                us.temp = {};
+                us.displayMode = false;
                 showForest(nick);
               }
             }
             break;
           default:
-            sendNotice(nick, 'Press R to continue.');
+            flushQueue(nick);
+            const eventForDefault = us.temp.eventOutcome;
+            if (eventForDefault && eventForDefault.prompt) {
+              us.temp.eventToConfirm = eventForDefault;
+              sendLines(nick, [
+                '',
+                'Are you sure you want to leave? [Y/N]',
+                '',
+                r('(Y)es, (N)o (? for menu)')
+              ]);
+              setState(nick, PLAYER_STATES.FOREST_EVENT_CONFIRM);
+            } else {
+              sendNotice(nick, 'Press R to continue.');
+            }
             break;
         }
+      }
+      break;
+
+    case PLAYER_STATES.FOREST_EVENT_CONFIRM:
+      if (cmdLower === 'y' || cmdLower === 'Y') {
+        const us = getState(nick);
+        us.temp = {};
+        us.displayMode = false;
+        showForest(nick);
+      } else if (cmdLower === 'n' || cmdLower === 'N' || cmdLower === '?') {
+        clearMessageQueue(nick);
+        const us = getState(nick);
+        const event = us.temp.eventToConfirm;
+        
+        if (event && event.prompt) {
+          if (event.prompt === 'fairy_interact') {
+            const lines = [
+              '',
+              border(),
+              r('  EVENT: Fairy'),
+              border(),
+              '',
+              'YOU ARE NOTICED!',
+              '',
+              'The small things encircle you. A small wet female',
+              'bangs your shin. "How dare you spy on us, human!"',
+              '',
+              w('(A)sk for a blessing'),
+              w('(T)ry to catch one to show your friends'),
+              w('(R)eturn to Forest'),
+              '',
+              r('Your choice? [A/T/R] (? for menu)')
+            ];
+            sendLines(nick, lines);
+          } else if (event.prompt === 'fairy_blessing') {
+            const lines = [
+              '',
+              border(),
+              r('  EVENT: Fairy'),
+              border(),
+              '',
+              '  A tiny fairy appears before you!',
+              '"Bless me!" you implore the small figure.',
+              '',
+              '"Very well." she agrees. "But we\'re still',
+              'angry at you! What would you like?"',
+              '',
+              w('(G)ems - Pray for fortune'),
+              w('(H)orse - Seek a companion'),
+              w('(K)iss - Receive healing'),
+              '',
+              r('Well? [G/H/K] (? for menu)')
+            ];
+            sendLines(nick, lines);
+          } else if (event.prompt === 'scroll') {
+            const lines = [
+              '',
+              border(),
+              r('  EVENT: Scroll'),
+              border(),
+              '',
+              '  The scroll reads:',
+              '  I am to wed one against my will. My father tells me',
+              '  I am selfish, because this political marriage will',
+              '  bring peace. Get me out of here, -a prisoner of war',
+              '',
+              w('(S)ave her'),
+              w('(I)gnore the girl'),
+              '',
+              r('Well? [S/I] (? for menu)')
+            ];
+            sendLines(nick, lines);
+          } else if (event.prompt === 'oldman') {
+            const lines = [
+              '',
+              border(),
+              r('  EVENT: Old Man'),
+              border(),
+              '',
+              '  You come across an old man. He seems confused and',
+              '  asks if you would direct him to the Inn. You know',
+              '  that if you do, you will lose time for one fight',
+              '  today.',
+              '',
+              '  Do you take the old man? [Y/N] (? for menu)',
+              ''
+            ];
+            sendLines(nick, lines);
+          } else if (event.prompt === 'hag') {
+            const lines = [
+              '',
+              border(),
+              r('  EVENT: Old Hag'),
+              border(),
+              '',
+              '  You come across an ugly old hag.',
+              '"Give me a gem and I will completely heal you',
+              'warrior!" she screeches.',
+              '',
+              '  Give her the gem? [Y/N] (? for menu)',
+              ''
+            ];
+            sendLines(nick, lines);
+          } else {
+            showForest(nick);
+          }
+        } else if (us.temp.nextState) {
+          if (us.temp.nextState === 'dwarf') {
+            showDwarfGames(nick);
+          } else if (us.temp.nextState === 'hut') {
+            showForestHut(nick);
+          } else {
+            showForest(nick);
+          }
+        } else {
+          showForest(nick);
+        }
+      } else {
+        sendNotice(nick, 'Are you sure you want to leave? [Y/N] (? for menu)');
       }
       break;
 
