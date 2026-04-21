@@ -120,11 +120,18 @@ function calculateFirstStrikeChance(player, target) {
   return chance;
 }
 
-const FLOOD_DELAY = 1000;
+const FLOOD_DELAY = 2000;
+const FLOOD_DELAY_SLOW = 2500;
+const FLOOD_DELAY_MASTER = 1500;
+const FLOOD_DELAY_MAIN = 2000;
+const FLOOD_DELAY_TRAINING_MAIN = 2000;
+const FLOOD_DELAY_TRAINING_CHALLENGE = 1500;
+const FLOOD_DELAY_TRAINING_QUESTION = 1500;
 
 const messageQueue = new Map();
 const queueTimeouts = new Map();
 const queueVersion = new Map();
+const userStateDelays = new Map();
 
 const innConvo = [];
 const innNewConvo = [];
@@ -229,18 +236,38 @@ function sendImmediate(nick, message) {
   client.say(nick, message);
 }
 
-function queueMessage(nick, message) {
+function queueMessage(nick, message, delayMs = null) {
   if (!messageQueue.has(nick)) {
     messageQueue.set(nick, []);
     queueVersion.set(nick, (queueVersion.get(nick) || 0) + 1);
   }
   const queue = messageQueue.get(nick);
-  queue.push(message);
+  queue.push({ text: message, delay: delayMs });
   
   if (queue.length === 1) {
-    const timeout = setTimeout(() => processQueue(nick), FLOOD_DELAY);
-    queueTimeouts.set(nick, timeout);
+    scheduleNextMessage(nick);
   }
+}
+
+function scheduleNextMessage(nick) {
+  if (queueTimeouts.has(nick)) {
+    clearTimeout(queueTimeouts.get(nick));
+    queueTimeouts.delete(nick);
+  }
+  
+  const queue = messageQueue.get(nick);
+  if (!queue || queue.length === 0) return;
+  
+  // Get delay from the first message in queue
+  const userState = getState(nick);
+  let baseDelay = FLOOD_DELAY;
+  if (userState && userState.displayMode) baseDelay = FLOOD_DELAY_SLOW;
+  
+  const msg = queue[0];
+  const delay = msg?.delay ?? baseDelay;
+  
+  const timeout = setTimeout(() => processQueue(nick), delay);
+  queueTimeouts.set(nick, timeout);
 }
 
 function processQueue(nick) {
@@ -261,16 +288,15 @@ function processQueue(nick) {
     return;
   }
   
-  const message = queue.shift();
+  const msg = queue.shift();
   if (queueVersion.get(nick) !== version) {
     return;
   }
   
-  sendImmediate(nick, message);
+  sendImmediate(nick, msg.text);
   
   if (queue.length > 0) {
-    const timeout = setTimeout(() => processQueue(nick), FLOOD_DELAY);
-    queueTimeouts.set(nick, timeout);
+    scheduleNextMessage(nick);
   } else {
     messageQueue.delete(nick);
     const userState = getState(nick);
@@ -320,13 +346,29 @@ function clearMessageQueue(nick) {
   }
 }
 
-function sendLines(nick, lines) {
+function sendLines(nick, lines, delayMs = null) {
   if (lines.length > 0) {
     if (!queueTimeouts.has(nick)) {
       clearMessageQueue(nick);
     }
   }
-  lines.forEach(line => queueMessage(nick, line));
+  lines.forEach(line => {
+    let delay = FLOOD_DELAY;
+    if (delayMs !== null) {
+      delay = delayMs;
+    } else if (line.includes('.') && line.includes("'") && line.length > 50) {
+      delay = FLOOD_DELAY_SLOW;
+    } else if (line.includes('MASTER FIGHT') || line.includes('You have challenged') || line.includes('Master HP:')) {
+      delay = FLOOD_DELAY_MASTER;
+    } else if (line.includes('Legend of the Red Dragon') || line.includes('Town Square')) {
+      delay = FLOOD_DELAY_MAIN;
+    } else if (line.includes('Turgon')) {
+      delay = FLOOD_DELAY_TRAINING_MAIN;
+    } else if (line.includes('says:')) {
+      delay = FLOOD_DELAY_TRAINING_QUESTION;
+    }
+    queueMessage(nick, line, delay);
+  });
 }
 
 function sendPrompt(nick, message) {
@@ -1653,20 +1695,20 @@ function showTraining(nick) {
     '',
     border(),
     ''
-  ]);
+  ], FLOOD_DELAY_TRAINING_MAIN);
 
   if (stats.level >= 12) {
     sendLines(nick, [
       '  You have reached the maximum level!',
       '  You are ready to fight the Red Dragon!',
       ''
-    ]);
+    ], FLOOD_DELAY_TRAINING_MAIN);
   } else {
     sendLines(nick, [
       '  Next level: ' + g(stats.level + 1),
       '  XP needed: ' + g(game.formatNumber(stats.nextXp - stats.xp)),
       ''
-    ]);
+    ], FLOOD_DELAY_TRAINING_MAIN);
   }
 
   sendLines(nick, [
@@ -1705,7 +1747,7 @@ function showTrainingQuestion(nick) {
     '',
     r('Well? (C,R) (? for menu)'),
     ''
-  ]);
+  ], FLOOD_DELAY_TRAINING_QUESTION);
   setState(nick, PLAYER_STATES.TRAINING_QUESTION);
 }
 
@@ -1762,7 +1804,7 @@ function startMasterFight(nick) {
   lines.push(r('Master Fight') + w('  ' + helpKeys));
   lines.push('');
 
-  sendLines(nick, lines);
+  sendLines(nick, lines, FLOOD_DELAY_TRAINING_CHALLENGE);
   {
     const us = getState(nick);
     us.lastFightState = PLAYER_STATES.FIGHT_MASTER;
@@ -2679,13 +2721,21 @@ function startFight(nick) {
         lines.push(w('(R)eturn to Forest'));
         lines.push('');
         lines.push(r('Your choice? [A/T/R] (? for menu)'));
+        
+        const userState = getState(nick);
+        userState.displayMode = true;
+        
         sendLines(nick, lines);
         setState(nick, PLAYER_STATES.FOREST_EVENT);
       } else {
         lines.push('');
         lines.push('(R)eturn to Forest');
         lines.push('');
-        sendLines(nick, lines);
+        
+        const userState = getState(nick);
+        userState.displayMode = true;
+        
+        sendLines(nick, lines, 0); // Fast posting for single-phase events
         setState(nick, PLAYER_STATES.FOREST_EVENT);
       }
       return;
@@ -4429,32 +4479,25 @@ function handleCommand(nick, cmd, args) {
 
         if (event && event.prompt === 'fairy_noticed') {
           if (cmdLower === 'a') {
-            const result = game.processForestEvent(nick, { type: 'fairy_interact' });
+            sendLines(nick, [
+              '',
+              'Do you want to ask for a blessing? [Y/N]',
+              '',
+              r('(Y)es, (N)o (? for menu)')
+            ]);
             const us = getState(nick);
-            us.temp.eventOutcome = result;
-            const lines = ['', border(), r('  EVENT: Fairy'), border(), ''];
-            result.outcomes.forEach(o => lines.push('  ' + o));
-            lines.push('');
-            lines.push('  A tiny fairy appears before you!');
-            lines.push('  "Bless me!" you implore the small figure.');
-            lines.push('');
-            lines.push('  "Very well." she agrees. "But we\'re still');
-            lines.push('  angry at you! What would you like?"');
-            lines.push('');
-            lines.push('  (G)ems - Pray for fortune');
-            lines.push('  (H)orse - Seek a companion');
-            lines.push('  (K)iss - Receive healing');
-            lines.push('');
-            lines.push(r('Well? [G/H/K] (? for menu)'));
-            sendLines(nick, lines);
+            us.temp.eventToConfirm = { action: 'fairy_interact' };
+            setState(nick, PLAYER_STATES.FOREST_EVENT_CONFIRM);
           } else if (cmdLower === 't') {
-            const result = game.processForestEvent(nick, { type: 'fairy_catch' });
-            const lines = ['', border(), r('  EVENT: Fairy'), border(), ''];
-            result.outcomes.forEach(o => lines.push('  ' + o));
-            lines.push('');
-            sendLines(nick, lines);
-            savePlayer(nick, loadPlayer(nick));
-            showForest(nick);
+            sendLines(nick, [
+              '',
+              'Do you want to try to catch a fairy? [Y/N]',
+              '',
+              r('(Y)es, (N)o (? for menu)')
+            ]);
+            const us = getState(nick);
+            us.temp.eventToConfirm = { action: 'fairy_catch' };
+            setState(nick, PLAYER_STATES.FOREST_EVENT_CONFIRM);
           } else if (cmdLower === 'r') {
             sendLines(nick, [
               '',
@@ -4517,8 +4560,17 @@ function handleCommand(nick, cmd, args) {
             lines.push('');
             sendLines(nick, lines);
             showForest(nick);
-          } else {
-            clearMessageQueue(nick);
+          } else if (cmdLower === 'r') {
+            sendLines(nick, [
+              '',
+              'Are you sure you want to leave? [Y/N]',
+              '',
+              r('(Y)es, (N)o (? for menu)')
+            ]);
+            const us = getState(nick);
+            us.temp.eventToConfirm = { action: 'leave' };
+            setState(nick, PLAYER_STATES.FOREST_EVENT_CONFIRM);
+          } else if (cmdLower === '?') {
             sendLines(nick, [
               '',
               border(),
@@ -4535,6 +4587,8 @@ function handleCommand(nick, cmd, args) {
               '',
               r('Well? [S/I] (? for menu)')
             ]);
+          } else {
+            sendNotice(nick, 'Well? [S/I] (? for menu)');
           }
           break;
         }
@@ -4548,8 +4602,17 @@ function handleCommand(nick, cmd, args) {
             lines.push('');
             sendLines(nick, lines);
             showForest(nick);
-          } else {
-            clearMessageQueue(nick);
+          } else if (cmdLower === 'r') {
+            sendLines(nick, [
+              '',
+              'Are you sure you want to leave? [Y/N]',
+              '',
+              r('(Y)es, (N)o (? for menu)')
+            ]);
+            const us = getState(nick);
+            us.temp.eventToConfirm = { action: 'leave' };
+            setState(nick, PLAYER_STATES.FOREST_EVENT_CONFIRM);
+          } else if (cmdLower === '?') {
             sendLines(nick, [
               '',
               border(),
@@ -4568,6 +4631,8 @@ function handleCommand(nick, cmd, args) {
               '',
               r('Where do we go now? [C/F/G/P/D] (? for menu)')
             ]);
+          } else {
+            sendNotice(nick, 'Where do we go now? [C/F/G/P/D] (? for menu)');
           }
           break;
         }
@@ -4633,33 +4698,45 @@ function handleCommand(nick, cmd, args) {
 
         if (event && event.prompt === 'fairy_blessing') {
           if (cmdLower === 'g') {
-            const result = game.processForestEvent(nick, { type: 'fairy_gems' });
-            const lines = ['', border(), r('  EVENT: Fairy'), border(), ''];
-            result.outcomes.forEach(o => lines.push('  ' + o));
-            lines.push('');
-            sendLines(nick, lines);
-            savePlayer(nick, loadPlayer(nick));
-            showForest(nick);
-          } else if (cmdLower === 'h') {
-            const result = game.processForestEvent(nick, { type: 'fairy_horse' });
-            const lines = ['', border(), r('  EVENT: Fairy'), border(), ''];
-            result.outcomes.forEach(o => lines.push('  ' + o));
-            lines.push('');
-            sendLines(nick, lines);
-            savePlayer(nick, loadPlayer(nick));
-            showForest(nick);
-          } else if (cmdLower === 'k') {
-            const result = game.processForestEvent(nick, { type: 'fairy_kiss' });
-            const lines = ['', border(), r('  EVENT: Fairy'), border(), ''];
-            result.outcomes.forEach(o => lines.push('  ' + o));
-            lines.push('');
-            lines.push('Are you leaving? [Y/N]');
-            lines.push('');
-            lines.push(r('(Y)es, (N)o (? for menu)'));
-            sendLines(nick, lines);
+            sendLines(nick, [
+              '',
+              'Do you want to pray for gems? [Y/N]',
+              '',
+              r('(Y)es, (N)o (? for menu)')
+            ]);
             const us = getState(nick);
-            us.temp.eventOutcome = result;
-            setState(nick, PLAYER_STATES.FOREST_EVENT_CONTINUE);
+            us.temp.eventToConfirm = { action: 'fairy_gems' };
+            setState(nick, PLAYER_STATES.FOREST_EVENT_CONFIRM);
+          } else if (cmdLower === 'h') {
+            sendLines(nick, [
+              '',
+              'Do you want to seek a fairy horse? [Y/N]',
+              '',
+              r('(Y)es, (N)o (? for menu)')
+            ]);
+            const us = getState(nick);
+            us.temp.eventToConfirm = { action: 'fairy_horse' };
+            setState(nick, PLAYER_STATES.FOREST_EVENT_CONFIRM);
+          } else if (cmdLower === 'k') {
+            sendLines(nick, [
+              '',
+              'Do you want to receive healing? [Y/N]',
+              '',
+              r('(Y)es, (N)o (? for menu)')
+            ]);
+            const us = getState(nick);
+            us.temp.eventToConfirm = { action: 'fairy_kiss' };
+            setState(nick, PLAYER_STATES.FOREST_EVENT_CONFIRM);
+          } else if (cmdLower === 'r') {
+            sendLines(nick, [
+              '',
+              'Are you sure you want to leave? [Y/N]',
+              '',
+              r('(Y)es, (N)o (? for menu)')
+            ]);
+            const us = getState(nick);
+            us.temp.eventToConfirm = { action: 'leave' };
+            setState(nick, PLAYER_STATES.FOREST_EVENT_CONFIRM);
           } else if (cmdLower === '?') {
             sendLines(nick, [
               '',
@@ -4711,7 +4788,6 @@ function handleCommand(nick, cmd, args) {
             result.outcomes.forEach(o => lines.push('  ' + o));
             lines.push('');
             sendLines(nick, lines);
-            savePlayer(nick, loadPlayer(nick));
             showForest(nick);
           } else if (cmdLower === 'n') {
             const result = game.processForestEvent(nick, { type: 'hag_no' });
@@ -4849,10 +4925,10 @@ function handleCommand(nick, cmd, args) {
                 'Are you sure you want to leave? [Y/N]',
                 '',
                 r('(Y)es, (N)o (? for menu)')
-              ]);
+]);
               setState(nick, PLAYER_STATES.FOREST_EVENT_CONFIRM);
             } else {
-              sendNotice(nick, 'Press R to continue.');
+              sendLines(nick, ['', 'Press R to continue.', '']);
             }
             break;
         }
@@ -4862,9 +4938,76 @@ function handleCommand(nick, cmd, args) {
     case PLAYER_STATES.FOREST_EVENT_CONFIRM:
       if (cmdLower === 'y' || cmdLower === 'Y') {
         const us = getState(nick);
-        us.temp = {};
-        us.displayMode = false;
-        showForest(nick);
+        const action = us.temp.eventToConfirm;
+        
+        if (action && action.action) {
+          if (action.action === 'fairy_interact') {
+            us.temp = {};
+            us.displayMode = false;
+            const result = game.processForestEvent(nick, { type: 'fairy_interact' });
+            us.temp.eventOutcome = result;
+            const lines = ['', border(), r('  EVENT: Fairy'), border(), ''];
+            result.outcomes.forEach(o => lines.push('  ' + o));
+            lines.push('');
+            lines.push('  A tiny fairy appears before you!');
+            lines.push('  "Bless me!" you implore the small figure.');
+            lines.push('');
+            lines.push('  "Very well." she agrees. "But we\'re still');
+            lines.push('  angry at you! What would you like?"');
+            lines.push('');
+            lines.push('  (G)ems - Pray for fortune');
+            lines.push('  (H)orse - Seek a companion');
+            lines.push('  (K)iss - Receive healing');
+            lines.push('');
+            lines.push(r('Well? [G/H/K] (? for menu)'));
+            us.displayMode = true;
+            sendLines(nick, lines);
+          } else if (action.action === 'fairy_catch') {
+            us.temp = {};
+            us.displayMode = false;
+            const result = game.processForestEvent(nick, { type: 'fairy_catch' });
+            const lines = ['', border(), r('  EVENT: Fairy'), border(), ''];
+            result.outcomes.forEach(o => lines.push('  ' + o));
+            lines.push('');
+            sendLines(nick, lines);
+            showForest(nick);
+          } else if (action.action === 'fairy_gems') {
+            us.temp = {};
+            us.displayMode = false;
+            const result = game.processForestEvent(nick, { type: 'fairy_gems' });
+            const lines = ['', border(), r('  EVENT: Fairy'), border(), ''];
+            result.outcomes.forEach(o => lines.push('  ' + o));
+            lines.push('');
+            sendLines(nick, lines);
+            showForest(nick);
+          } else if (action.action === 'fairy_horse') {
+            us.temp = {};
+            us.displayMode = false;
+            const result = game.processForestEvent(nick, { type: 'fairy_horse' });
+            const lines = ['', border(), r('  EVENT: Fairy'), border(), ''];
+            result.outcomes.forEach(o => lines.push('  ' + o));
+            lines.push('');
+            sendLines(nick, lines);
+            showForest(nick);
+          } else if (action.action === 'fairy_kiss') {
+            us.temp = {};
+            us.displayMode = false;
+            const result = game.processForestEvent(nick, { type: 'fairy_kiss' });
+            const lines = ['', border(), r('  EVENT: Fairy'), border(), ''];
+            result.outcomes.forEach(o => lines.push('  ' + o));
+            lines.push('');
+            sendLines(nick, lines);
+            showForest(nick);
+          } else if (action.action === 'leave') {
+            us.temp = {};
+            us.displayMode = false;
+            showForest(nick);
+          } else {
+            showForest(nick);
+          }
+        } else {
+          showForest(nick);
+        }
       } else if (cmdLower === 'n' || cmdLower === 'N' || cmdLower === '?') {
         clearMessageQueue(nick);
         const us = getState(nick);
@@ -4998,7 +5141,7 @@ function handleCommand(nick, cmd, args) {
       }
       break;
 
-    case PLAYER_STATES.FIGHT:
+case PLAYER_STATES.FIGHT:
       switch (cmdLower) {
         case 'a': case 'A':
         case '':
@@ -5016,10 +5159,10 @@ function handleCommand(nick, cmd, args) {
               flushQueue(nick);
               showSkillMenu(nick);
             } else {
-              sendNotice(nick, 'Forest Fight - A,R,Q');
+              sendLines(nick, ['', 'Press R to continue.', '']);
             }
+            break;
           }
-          break;
         case 'r': case 'R':
           flushQueue(nick);
           processRun(nick);

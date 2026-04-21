@@ -269,14 +269,17 @@ export function processForestEvent(nick, event) {
           result.outcomes.push('transforms into a beautiful gem!');
           result.outcomes.push('');
           result.outcomes.push('You caught ' + gemsCaught + ' gem(s)!');
+          savePlayer(nick, player);
         } else if (roll < 80) {
           const lvl = player.level;
           const xpEarned = lvl * lvl * 10;
           player.xp = clamp(player.xp + xpEarned, 0, config.maxXP);
           result.outcomes.push('angry at you! Your blessing is...Fairy Lore!');
           result.outcomes.push('You earned ' + xpEarned + ' experience points.');
+          savePlayer(nick, player);
         } else {
           player.hp = player.maxhp;
+          savePlayer(nick, player);
           result.outcomes.push('angry at you!');
           result.outcomes.push('');
           result.outcomes.push('Your blessing is...a kiss from Teesha!');
@@ -304,12 +307,76 @@ export function processForestEvent(nick, event) {
           result.outcomes.push('');
           result.outcomes.push('You think now would be splendid time to leave.');
           player.fairies = (player.fairies || 0) + 1;
+          savePlayer(nick, player);
         } else {
           result.outcomes.push('YOU MAKE A WILD GRAB FOR THE SMALL FIGURES!');
           result.outcomes.push('');
           result.outcomes.push('Your hand finally connects with.... NOTHING!');
         }
         result.autoContinue = true;
+      }
+      break;
+
+    case 'fairy_gems':
+      {
+        const roll = random(1, 100);
+        if (roll < 30) {
+          const gemsCaught = random(1, 3);
+          player.gems += gemsCaught;
+          result.outcomes.push('"Very well." the fairy nods.');
+          result.outcomes.push('');
+          result.outcomes.push('A single tear rolls down her cheek and');
+          result.outcomes.push('transforms into a beautiful gem!');
+          result.outcomes.push('');
+          result.outcomes.push('You caught ' + gemsCaught + ' gem(s)!');
+          savePlayer(nick, player);
+        } else if (roll < 80) {
+          const lvl = player.level;
+          const xpEarned = lvl * lvl * 10;
+          player.xp = clamp(player.xp + xpEarned, 0, config.maxXP);
+          result.outcomes.push('angry at you! Your blessing is...Fairy Lore!');
+          result.outcomes.push('You earned ' + xpEarned + ' experience points.');
+          savePlayer(nick, player);
+        } else {
+          player.hp = player.maxhp;
+          savePlayer(nick, player);
+          result.outcomes.push('angry at you!');
+          result.outcomes.push('');
+          result.outcomes.push('She kisses your wounds and they disappear!');
+        }
+      }
+      break;
+
+    case 'fairy_horse':
+      {
+        const roll = random(1, 100);
+        if (roll < 15) {
+          player.horse = HORSE_WHITE;
+          result.outcomes.push('"Very well. Take this white mare."');
+          result.outcomes.push('');
+          result.outcomes.push('A glowing white horse appears!');
+          savePlayer(nick, player);
+        } else if (roll < 30) {
+          player.horse = HORSE_BLACK;
+          result.outcomes.push('"Very well. Take this black steed."');
+          result.outcomes.push('');
+          result.outcomes.push('A menacing black horse appears!');
+          savePlayer(nick, player);
+        } else {
+          result.outcomes.push('"Very well." the fairy smiles.');
+          result.outcomes.push('');
+          result.outcomes.push('She points you toward a horse nearby!');
+        }
+      }
+      break;
+
+    case 'fairy_kiss':
+      {
+        player.hp = player.maxhp;
+        savePlayer(nick, player);
+        result.outcomes.push('She plants a kiss on your nose.');
+        result.outcomes.push('');
+        result.outcomes.push('You feel refreshed and fully healed!');
       }
       break;
 
@@ -562,6 +629,7 @@ export function processForestEvent(nick, event) {
         const newMaxHp = player.maxhp + 1;
         player.maxhp = newMaxHp;
         player.hp = newMaxHp;
+        savePlayer(nick, player);
         return {
           event: 'Old Hag',
           message: 'You give her a gem',

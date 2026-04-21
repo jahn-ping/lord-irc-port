@@ -63,7 +63,17 @@ export const masters = [
   { name: 'Aladdin', hp: 190, str: 80, weapon: 'Shiny Lamp', greeting: "You are now level eight. Remember, do not use your great strength in bullying the other warriors." },
   { name: 'Prince Caspian', hp: 200, str: 90, weapon: 'Flashing Rapier', greeting: "You are now level nine. You have traveled far on the road of hardships." },
   { name: 'Gandalf', hp: 210, str: 100, weapon: 'Huge Fireballs', greeting: "You are now level ten.. A true honor! You may be the one to rid the realm of the Red Dragon." },
-  { name: 'Turgon', hp: 220, str: 120, weapon: "Able's Sword", greeting: "I am Turgon, son. The greatest warrior in the realm. You must find and kill the Red Dragon." }
+  { name: 'Turgon', hp: 220, str: 120, weapon: "Able's Sword", greeting: "I am Turgon, son. The greatest warrior in the realm. You must find and kill the Red Dragon." },
+  { name: 'Morgoth', hp: 250, str: 140, weapon: 'Dark Sword', greeting: "You have reached level twelve. The shadows of the realm grow stronger." },
+  { name: 'Sauron', hp: 280, str: 160, weapon: 'Evil Ring', greeting: "Level thirteen! The eye of darkness watches your progress." },
+  { name: 'Dracula', hp: 310, str: 180, weapon: 'Vampire Fangs', greeting: "Fourteen! The night is dark and full of terrors." },
+  { name: 'Beowulf', hp: 340, str: 200, weapon: 'Ancient Spear', greeting: "Fifteen! A legendary hero rises to meet you." },
+  { name: 'King Arthur', hp: 370, str: 220, weapon: 'Excalibur', greeting: "Sixteen! The once and future king acknowledges your strength." },
+  { name: 'Hercules', hp: 400, str: 240, weapon: 'Golden Club', greeting: "Seventeen! Even the gods take notice of your power." },
+  { name: 'Achilles', hp: 430, str: 260, weapon: 'Invincible Spear', greeting: "Eighteen! The hero of Troy bows to your might." },
+  { name: 'Thor', hp: 460, str: 280, weapon: 'Mjolnir', greeting: "Nineteen! The thunder god challenges you!" },
+  { name: 'Odin', hp: 490, str: 300, weapon: 'Spear of Destiny', greeting: "Twenty! The all-father recognizes your legendary strength." },
+  { name: 'Zeus', hp: 520, str: 320, weapon: 'Lightning Bolt', greeting: "Twenty-one! You have surpassed the gods themselves!" }
 ];
 
 export const monsters = [
