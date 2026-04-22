@@ -253,7 +253,7 @@ export function processForestEvent(nick, event) {
       result.outcomes.push('(A)sk for a blessing');
       result.outcomes.push('(T)ry to catch one to show your friends');
       result.outcomes.push('');
-      result.outcomes.push(r('Your choice? [A/T] (? for menu)'));
+      result.outcomes.push('Your choice? [A/T] (? for menu)');
       result.prompt = 'fairy_interact';
       break;
 

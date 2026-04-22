@@ -120,13 +120,13 @@ function calculateFirstStrikeChance(player, target) {
   return chance;
 }
 
-const FLOOD_DELAY = 2000;
-const FLOOD_DELAY_SLOW = 2500;
-const FLOOD_DELAY_MASTER = 1500;
-const FLOOD_DELAY_MAIN = 2000;
-const FLOOD_DELAY_TRAINING_MAIN = 2000;
-const FLOOD_DELAY_TRAINING_CHALLENGE = 1500;
-const FLOOD_DELAY_TRAINING_QUESTION = 1500;
+const FLOOD_DELAY = 1000;
+const FLOOD_DELAY_SLOW = 1250;
+const FLOOD_DELAY_MASTER = 750;
+const FLOOD_DELAY_MAIN = 1000;
+const FLOOD_DELAY_TRAINING_MAIN = 1000;
+const FLOOD_DELAY_TRAINING_CHALLENGE = 750;
+const FLOOD_DELAY_TRAINING_QUESTION = 750;
 
 const messageQueue = new Map();
 const queueTimeouts = new Map();
@@ -2700,6 +2700,17 @@ function startFight(nick) {
         return;
       }
 
+      if (event.type === 'fairy') {
+        const userState = getState(nick);
+        userState.displayMode = true;
+        sendLines(nick, lines);
+        // Now transition to fairy_noticed prompt
+        const nextResult = game.processForestEvent(nick, { type: 'fairy_noticed' });
+        userState.temp.eventOutcome = nextResult;
+        setState(nick, PLAYER_STATES.FOREST_EVENT);
+        return;
+      }
+
       if (event.prompt === 'oldman') {
         lines.push('');
         lines.push('  Do you take the old man? [Y/N]');
@@ -4915,7 +4926,7 @@ function handleCommand(nick, cmd, args) {
               }
             }
             break;
-          default:
+default:
             flushQueue(nick);
             const eventForDefault = us.temp.eventOutcome;
             if (eventForDefault && eventForDefault.prompt) {
@@ -4925,10 +4936,12 @@ function handleCommand(nick, cmd, args) {
                 'Are you sure you want to leave? [Y/N]',
                 '',
                 r('(Y)es, (N)o (? for menu)')
-]);
+              ]);
               setState(nick, PLAYER_STATES.FOREST_EVENT_CONFIRM);
+            } else if (eventForDefault && eventForDefault.type === 'fairy') {
+              showForest(nick);
             } else {
-              sendLines(nick, ['', 'Press R to continue.', '']);
+              showForest(nick);
             }
             break;
         }
@@ -5159,7 +5172,7 @@ case PLAYER_STATES.FIGHT:
               flushQueue(nick);
               showSkillMenu(nick);
             } else {
-              sendLines(nick, ['', 'Press R to continue.', '']);
+              sendNotice(nick, 'Forest Fight - A,R,Q');
             }
             break;
           }
