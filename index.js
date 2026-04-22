@@ -1598,7 +1598,10 @@ function showPeople(nick) {
         const mins = Math.floor(remaining / 60000);
         const secs = Math.floor((remaining % 60000) / 1000);
         const timeStr = mins + 'm ' + secs + 's remaining';
-        const killedBy = p.killed_by || 'Unknown';
+        let killedBy = p.killed_by || 'Unknown';
+        if (killedBy.startsWith('Master:')) {
+          killedBy = 'Master: ' + killedBy.replace('Master:', '');
+        }
         lines.push(' ' + w(lvl) + ' ' + p.name + ' - Level ' + g(p.level) + ' ' + game.classNames[p.class] + ' ' + r('(DEAD) [' + killedBy + '] [' + timeStr + ']'));
       } else {
         const inn = p.stayinn ? ' [INN]' : '';
@@ -2317,12 +2320,8 @@ function processPlayerAttack(nick) {
   lines.push('You hit ' + monster.name + ' for ' + g(damage) + ' damage!');
 
   if (monster.hp <= 0) {
-    if (monster.isPlayer) {
-      returnToFightState(nick, PLAYER_STATES.FIGHT_PLAYER);
-      return;
-    }
     monster.hp = 0;
-
+    
     const goldStolen = Math.floor(Math.random() * monster.gold) + 10;
     const player = loadPlayer(nick);
     const winnerChar = loadPlayer(nick);
@@ -2348,14 +2347,10 @@ function processPlayerAttack(nick) {
 
     const loserChar = targetPlayer;
 
-    console.log('[DEBUG WIN] monster.name=' + monster.name + ', loserNick=' + loserNick + ', loserChar=' + (loserChar ? loserChar.name : 'null'));
-
     if (loserNick && loserChar) {
       const loserMsg = 'SLAUGHTER RESULT: You were defeated by ' + (winnerChar?.name || nick) + '! They stole ' + goldStolen + ' gold. You now have ' + loserChar.gold + ' gold left.';
       console.log('[SLAUGHTER] -> ' + loserNick + ': ' + loserMsg);
       sendDirectNotice(loserNick, loserMsg);
-    } else {
-      console.log('[SLAUGHTER] Failed to send loser notice: loserNick=' + loserNick + ', loserChar=' + (loserChar ? 'exists' : 'null'));
     }
 
     const winnerNick = nick;
@@ -2370,7 +2365,7 @@ function processPlayerAttack(nick) {
     return;
   }
 
-  let monsterDamageMsg;
+  lines.push(monsterDamageMsg);
   if (userState.isShielded) {
     monsterDamageMsg = 'Your shield absorbs the attack!';
     userState.isShielded = false;
