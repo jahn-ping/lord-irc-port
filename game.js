@@ -158,10 +158,10 @@ export function checkLevelUp(nick) {
     const gains = getLevelGains(newLevel);
     
     player.level = newLevel;
-    player.maxhp = gains.hp;
-    player.hp = gains.hp;
-    player.str = gains.str;
-    player.def = gains.def;
+    player.maxhp += gains.hp;
+    player.hp = player.maxhp;
+    player.str += gains.str;
+    player.def += gains.def;
     
     savePlayer(nick, player);
     return { levelUp: true, newLevel, gains };
